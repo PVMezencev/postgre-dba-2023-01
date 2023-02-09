@@ -60,7 +60,7 @@
     Your identification has been saved in /home/devops0/.ssh/id_rsa
     Your public key has been saved in /home/devops0/.ssh/id_rsa.pub
     The key fingerprint is:
-    SHA256:oNVaEtnXVzhVMTKrUAxE6XQdyNpEbnVh9Jcxu8lbwZ4 devops0@pvmezentsev
+    SHA256:oNVaEtnXVzhVMTKrUAxE6XQdyNpEbnVh9Jcxu8lbwZ4 devops0@pghost
     The key's randomart image is:
     +---[RSA 3072]----+
     |      .oo+*+o=o&B|
