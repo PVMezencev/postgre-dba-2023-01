@@ -143,7 +143,7 @@
      ```
 11. В первой и во второй сессии выключаем auto commit:
      ```bash
-    postgres-# \SET AUTOCOMMIT off
+    postgres-# \set AUTOCOMMIT off
      ```
 11. Сделаем в первой сессии новую таблицу и наполняем ее данными:
      ```bash
