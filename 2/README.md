@@ -95,7 +95,7 @@
      ```bash
     curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /usr/share/keyrings/postgresql-keyring.gpg
      ```
-14. Затем, наконец-то, устанавливаем postgres (на момент написания 15 версия самая новая):
+14. Затем, устанавливаем postgres (на момент написания 15 версия самая новая):
      ```bash
     sudo apt install postgresql-15 -y
      ```

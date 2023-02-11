@@ -5,7 +5,7 @@
 1. Устанавливаем Docker Engine по [официальной документации](https://docs.docker.com/engine/install/debian/):
    ```bash
    #  Обновим список репозиториев, обновим пакеты, удалим более не требуемые файлы.
-   sudo apt update && apt dist-upgrade -y && apt autoremove -y
+   sudo apt update && sudo apt dist-upgrade -y && sudo apt autoremove -y
    # Установим необходимые утилиты (на всякий случай, если они не установлены ранее).
    sudo apt install ca-certificates curl gnupg lsb-release -y
    # Создадим каталог для хранения ключей внешних репозиториев.
@@ -16,7 +16,7 @@
    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
    # Снова обновим список репозиториев.
    sudo apt update
-   # И, наконец-то, установим Docker Engine.
+   # И установим Docker Engine.
    sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin -y
    # Для проверки докера официальная документация рекомендует выполнить следующую команду:
    sudo docker run hello-world
@@ -63,7 +63,7 @@
     ```bash
    sudo mkdir -p /var/lib/postgres/
     ```
-3. Скачаем образ докера из их репозитория с postgres 14:
+3. Скачаем образ докера с postgres 14 из их репозитория:
     ```bash
    sudo docker pull postgres:14
     # Получаем:
@@ -222,7 +222,7 @@
     postgres=# \q
      ```
 
-Использовались материалы из лекций, а так же интернет ресуры:
+Использовались материалы из лекций, а так же интернет ресурсы:
 
 Официальный сайт докера: https://docs.docker.com/engine/install/debian/
 
