@@ -7,7 +7,7 @@
     - vCPU: 2
     - RAM: 4 ГБ
     - Логин: (придумываем) devops0
-    - SSH-ключ: получаем публичный ключ со своей рабочей машины, в моём случе это: `cat ~/.ssh/id_rsa.pub`, копируем строку, как рекомендует поле в админ-панели ЯО.
+    - SSH-ключ: получаем публичный ключ со своей рабочей машины, в моём случае это: `cat ~/.ssh/id_rsa.pub`, копируем строку, как рекомендует поле в админ-панели ЯО.
 2. Устанавливаем PostgreSQL 14 через sudo apt:
     - Обновим систему: `sudo apt -y update && sudo apt dist-upgrade`
     - По умолчанию в репозиториях Ubuntu 20.04 недоступна 14-я версия, по этому добавим репозиторий и импортируем его публичный ключ. `sudo apt -y install gnupg2 wget && sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list' && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -`
@@ -35,7 +35,7 @@ Ver Cluster Port Status Owner    Data directory    Log file
 7. Присоединим созданный диск к ВМ: через меню выбираем "Присоединить", выбираем ВМ, снимаем галочку "Автоматическое удаление", жмём "Подключить".
 8. Инициализируем диск:
     - Устанавливаем утилиту для работы с ФС: `sudo apt install parted`
-    - Определяем путь к присоединённому диску: `lsblk` -> в нашем случе это /dev/vdb
+    - Определяем путь к присоединённому диску: `lsblk` -> в нашем случае это /dev/vdb
     - Создадим новую таблицу разделов на новом диске: `sudo parted /dev/vdb mklabel msdos`
     - Создадим новый раздел на диске: `sudo parted -a opt /dev/vdb mkpart primary ext4 0% 100%`. После этого команда `lsblk` покажет, что появился новый раздел /dev/vdb1
     - Форматируем раздел в файловую систему ext4: `sudo mkfs.ext4 -L datapartition /dev/vdb1`
@@ -114,4 +114,4 @@ Ver Cluster Port Status Owner    Data directory    Log file
     - Для каталога, в который смонтирован диск, устанавливаем владельца postgres, чтоб процесс кластера имел доступ к данным на этом диске: `sudo chown -R postgres:postgres /mnt/data/`
     - Удалим все файлы с данными из /var/lib/postgres
     - Заменяем в файле /etc/postgresql/14/main/postgresql.conf параметр data_directory = '/var/lib/postgresql/14/main' на data_directory = '/mnt/data/14/main', сохраняем его.
-    - Повторяем пункти 15, 16 - всё работает.
+    - Повторяем пункты 15, 16 - всё работает.
