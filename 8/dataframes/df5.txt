@@ -1,0 +1,10 @@
+progress: 60.0 s, 546.9 tps, lat 14.623 ms stddev 13.675
+progress: 120.0 s, 655.9 tps, lat 12.196 ms stddev 10.216
+progress: 180.0 s, 548.8 tps, lat 14.578 ms stddev 13.734
+progress: 240.0 s, 518.8 tps, lat 15.415 ms stddev 15.686
+progress: 300.0 s, 598.7 tps, lat 13.365 ms stddev 12.176
+progress: 360.0 s, 507.6 tps, lat 15.760 ms stddev 16.042
+progress: 420.0 s, 600.0 tps, lat 13.333 ms stddev 11.566
+progress: 480.0 s, 591.9 tps, lat 13.515 ms stddev 11.458
+progress: 540.0 s, 575.6 tps, lat 13.897 ms stddev 11.930
+progress: 600.0 s, 586.8 tps, lat 13.634 ms stddev 11.216
