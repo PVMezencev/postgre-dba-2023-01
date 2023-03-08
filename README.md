@@ -9,3 +9,4 @@
 6. [Физический уровень PostgreSQL.](./6/README.md)
 7. [Логический уровень PostgreSQL.](./7/README.md)
 8. [MVCC, vacuum и autovacuum.](./8/README.md)
+9. [Журналы.](./9/README.md)
