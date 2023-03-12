@@ -10,3 +10,4 @@
 7. [Логический уровень PostgreSQL.](./7/README.md)
 8. [MVCC, vacuum и autovacuum.](./8/README.md)
 9. [Журналы.](./9/README.md)
+10. [Блокировки.](./10/README.md)
