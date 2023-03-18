@@ -1,0 +1,127 @@
+devops0@otus-pg:~$ sudo -u postgres pg_lsclusters
+Ver Cluster Port Status Owner Data directory Log file
+
+devops0@otus-pg:~$ sudo apt install postgresql-15 -y
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+postgresql-15 is already the newest version (15.2-1.pgdg110+1).
+0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+
+devops0@otus-pg:~$ sudo -u postgres pg_createcluster 15 20230318
+Creating new PostgreSQL cluster 15/20230318 ...
+/usr/lib/postgresql/15/bin/initdb -D /var/lib/postgresql/15/20230318 --auth-local peer --auth-host scram-sha-256 --no-instructions
+The files belonging to this database system will be owned by user "postgres".
+This user must also own the server process.
+
+The database cluster will be initialized with this locale configuration:
+  provider:    libc
+  LC_COLLATE:  en_US.UTF-8
+  LC_CTYPE:    en_US.UTF-8
+  LC_MESSAGES: en_US.UTF-8
+  LC_MONETARY: ru_RU.UTF-8
+  LC_NUMERIC:  ru_RU.UTF-8
+  LC_TIME:     ru_RU.UTF-8
+The default database encoding has accordingly been set to "UTF8".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+fixing permissions on existing directory /var/lib/postgresql/15/20230318 ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default max_connections ... 100
+selecting default shared_buffers ... 128MB
+selecting default time zone ... Asia/Yekaterinburg
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+Warning: systemd does not know about the new cluster yet. Operations like "service postgresql start" will not handle it. To fix, run:
+  sudo systemctl daemon-reload
+Ver Cluster  Port Status Owner    Data directory                  Log file
+15  20230318 5432 down   postgres /var/lib/postgresql/15/20230318 /var/log/postgresql/postgresql-15-20230318.log
+
+devops0@otus-pg:~$ sudo -u postgres pg_ctlcluster 15 20230318 start
+Warning: the cluster will not be running as a systemd service. Consider using systemctl:
+  sudo systemctl start postgresql@15-20230318
+
+devops0@otus-pg:~$ sudo -u postgres pg_lsclusters
+Ver Cluster  Port Status Owner    Data directory                  Log file
+15  20230318 5432 online postgres /var/lib/postgresql/15/20230318 /var/log/postgresql/postgresql-15-20230318.log
+
+devops0@otus-pg:~$ sudo -u postgres -i
+postgres@otus-pg:~$ pg_lsclusters
+Ver Cluster  Port Status Owner    Data directory                  Log file
+15  20230318 5432 online postgres /var/lib/postgresql/15/20230318 /var/log/postgresql/postgresql-15-20230318.log
+
+postgres@otus-pg:~$ pgbench -i -s 500 --foreign-keys postgres
+dropping old tables...
+creating tables...
+generating data (client-side)...
+50000000 of 50000000 tuples (100%) done (elapsed 189.46 s, remaining 0.00 s)
+vacuuming...
+creating primary keys...
+creating foreign keys...
+done in 268.51 s (drop tables 0.02 s, create tables 0.02 s, client-side generate 189.95 s, vacuum 1.11 s, primary keys 62.53 s, foreign keys 14.88 s).
+
+postgres@otus-pg:~$ psql
+psql (15.2 (Debian 15.2-1.pgdg110+1))
+Type "help" for help.
+
+postgres=# SELECT relname,n_live_tup
+  FROM pg_stat_user_tables;
+     relname      | n_live_tup
+------------------+------------
+ pgbench_accounts |   50000053
+ pgbench_tellers  |       5000
+ pgbench_branches |        500
+ pgbench_history  |          0
+(4 rows)
+
+postgres=# \q
+
+postgres@otus-pg:~$ pgbench -c16 -P 60 -T 600 postgres
+pgbench (15.2 (Debian 15.2-1.pgdg110+1))
+starting vacuum...end.
+progress: 60.0 s, 679.2 tps, lat 20.978 ms stddev 38.546, 0 failed
+progress: 120.0 s, 661.2 tps, lat 21.740 ms stddev 35.571, 0 failed
+progress: 180.0 s, 646.1 tps, lat 22.363 ms stddev 48.904, 0 failed
+progress: 240.0 s, 641.2 tps, lat 22.567 ms stddev 52.445, 0 failed
+progress: 300.0 s, 640.6 tps, lat 22.483 ms stddev 50.943, 0 failed
+progress: 360.0 s, 643.9 tps, lat 22.510 ms stddev 50.080, 0 failed
+progress: 420.0 s, 656.9 tps, lat 21.949 ms stddev 36.582, 0 failed
+progress: 480.0 s, 658.4 tps, lat 21.920 ms stddev 35.993, 0 failed
+progress: 540.0 s, 663.6 tps, lat 21.694 ms stddev 37.081, 0 failed
+progress: 600.0 s, 670.0 tps, lat 21.489 ms stddev 34.138, 0 failed
+transaction type: <builtin: TPC-B (sort of)>
+scaling factor: 500
+query mode: simple
+number of clients: 16
+number of threads: 1
+maximum number of tries: 1
+duration: 600 s
+number of transactions actually processed: 393691
+number of failed transactions: 0 (0.000%)
+latency average = 21.960 ms
+latency stddev = 42.513 ms
+initial connection time = 59.894 ms
+tps = 656.139538 (without initial connection time)
+
+postgres@otus-pg:~$ psql
+psql (15.2 (Debian 15.2-1.pgdg110+1))
+Type "help" for help.
+
+postgres=# SELECT relname,n_live_tup
+  FROM pg_stat_user_tables;
+     relname      | n_live_tup
+------------------+------------
+ pgbench_accounts |   50000053
+ pgbench_tellers  |       5000
+ pgbench_branches |        500
+ pgbench_history  |     393691
+(4 rows)
+
+postgres=# \q
+
+
