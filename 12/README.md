@@ -351,8 +351,8 @@
    Получили увеличение производительности: **867.650383** - транзакций в секунду, и снизились задержки **11.409 ms**.
    - Теперь изменим настройки, полученные из предыдущих ДЗ:
     ```sql   
-   ALTER SYSTEM SET
    -- полученные в Тест 5 домашнего задания MVCC, vacuum и autovacuum, показавшие лучший результат.
+   ALTER SYSTEM SET
    autovacuum_naptime = '15.0';
    ALTER SYSTEM SET
    autovacuum_vacuum_threshold = '25';
