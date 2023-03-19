@@ -122,6 +122,315 @@ postgres=# SELECT relname,n_live_tup
  pgbench_history  |     393691
 (4 rows)
 
+postgres=# SELECT pg_size_pretty(pg_database_size(current_database()));
+ pg_size_pretty
+----------------
+ 7545 MB
+(1 row)
+
+postgres=# select
+       name, setting, unit, vartype, context
+from pg_settings
+where name in ('max_connections',
+               'shared_buffers',
+               'effective_cache_size',
+               'maintenance_work_mem',
+               'checkpoint_completion_target',
+               'wal_buffers',
+               'default_statistics_target',
+               'random_page_cost',
+               'effective_io_concurrency',
+               'work_mem',
+               'min_wal_size',
+               'max_wal_size',
+               'autovacuum',
+               'log_autovacuum_min_duration',
+               'autovacuum_max_workers',
+               'autovacuum_naptime',
+               'autovacuum_vacuum_threshold',
+               'autovacuum_vacuum_scale_factor',
+               'autovacuum_vacuum_cost_delay',
+               'autovacuum_vacuum_cost_limit',
+               'log_lock_waits',
+               'deadlock_timeout',
+               'checkpoint_timeout',
+               'synchronous_commit');
+              name              | setting | unit | vartype |  context
+--------------------------------+---------+------+---------+------------
+ autovacuum                     | on      |      | bool    | sighup
+ autovacuum_max_workers         | 3       |      | integer | postmaster
+ autovacuum_naptime             | 60      | s    | integer | sighup
+ autovacuum_vacuum_cost_delay   | 2       | ms   | real    | sighup
+ autovacuum_vacuum_cost_limit   | -1      |      | integer | sighup
+ autovacuum_vacuum_scale_factor | 0.2     |      | real    | sighup
+ autovacuum_vacuum_threshold    | 50      |      | integer | sighup
+ checkpoint_completion_target   | 0.9     |      | real    | sighup
+ checkpoint_timeout             | 300     | s    | integer | sighup
+ deadlock_timeout               | 1000    | ms   | integer | superuser
+ default_statistics_target      | 100     |      | integer | user
+ effective_cache_size           | 524288  | 8kB  | integer | user
+ effective_io_concurrency       | 1       |      | integer | user
+ log_autovacuum_min_duration    | 600000  | ms   | integer | sighup
+ log_lock_waits                 | off     |      | bool    | superuser
+ maintenance_work_mem           | 65536   | kB   | integer | user
+ max_connections                | 100     |      | integer | postmaster
+ max_wal_size                   | 1024    | MB   | integer | sighup
+ min_wal_size                   | 80      | MB   | integer | sighup
+ random_page_cost               | 4       |      | real    | user
+ shared_buffers                 | 16384   | 8kB  | integer | postmaster
+ synchronous_commit             | on      |      | enum    | user
+ wal_buffers                    | 512     | 8kB  | integer | postmaster
+ work_mem                       | 4096    | kB   | integer | user
+(23 rows)
+
+
 postgres=# \q
 
+# max_connections, shared_buffers, wal_buffers - требуют перезагрузки сервиса.
 
+postgres@otus-pg:~$ pg_ctlcluster 15 20230318 restart
+Warning: the cluster will not be running as a systemd service. Consider using systemctl:
+  sudo systemctl restart postgresql@15-20230318
+postgres@otus-pg:~$ pg_lsclusters
+Ver Cluster  Port Status Owner    Data directory                  Log file
+15  20230318 5432 online postgres /var/lib/postgresql/15/20230318 /var/log/postgresql/postgresql-15-20230318.log
+
+postgres@otus-pg:~$ psql
+
+postgres=# select
+       name, setting, unit, vartype, context
+from pg_settings
+where name in ('max_connections',
+               'shared_buffers',
+               'effective_cache_size',
+               'maintenance_work_mem',
+               'checkpoint_completion_target',
+               'wal_buffers',
+               'default_statistics_target',
+               'random_page_cost',
+               'effective_io_concurrency',
+               'work_mem',
+               'min_wal_size',
+               'max_wal_size',
+               'autovacuum',
+               'log_autovacuum_min_duration',
+               'autovacuum_max_workers',
+               'autovacuum_naptime',
+               'autovacuum_vacuum_threshold',
+               'autovacuum_vacuum_scale_factor',
+               'autovacuum_vacuum_cost_delay',
+               'autovacuum_vacuum_cost_limit',
+               'log_lock_waits',
+               'deadlock_timeout',
+               'checkpoint_timeout',
+               'synchronous_commit');
+
+              name              | setting | unit | vartype |  context
+--------------------------------+---------+------+---------+------------
+ autovacuum                     | on      |      | bool    | sighup
+ autovacuum_max_workers         | 3       |      | integer | postmaster
+ autovacuum_naptime             | 60      | s    | integer | sighup
+ autovacuum_vacuum_cost_delay   | 2       | ms   | real    | sighup
+ autovacuum_vacuum_cost_limit   | -1      |      | integer | sighup
+ autovacuum_vacuum_scale_factor | 0.2     |      | real    | sighup
+ autovacuum_vacuum_threshold    | 50      |      | integer | sighup
+ checkpoint_completion_target   | 0.9     |      | real    | sighup
+ checkpoint_timeout             | 300     | s    | integer | sighup
+ deadlock_timeout               | 1000    | ms   | integer | superuser
+ default_statistics_target      | 100     |      | integer | user
+ effective_cache_size           | 196608  | 8kB  | integer | user
+ effective_io_concurrency       | 200     |      | integer | user
+ log_autovacuum_min_duration    | 600000  | ms   | integer | sighup
+ log_lock_waits                 | off     |      | bool    | superuser
+ maintenance_work_mem           | 131072  | kB   | integer | user
+ max_connections                | 100     |      | integer | postmaster
+ max_wal_size                   | 4096    | MB   | integer | sighup
+ min_wal_size                   | 1024    | MB   | integer | sighup
+ random_page_cost               | 1.1     |      | real    | user
+ shared_buffers                 | 65536   | 8kB  | integer | postmaster
+ synchronous_commit             | off     |      | enum    | user
+ wal_buffers                    | 2048    | 8kB  | integer | postmaster
+ work_mem                       | 2621    | kB   | integer | user
+(23 rows)
+
+postgres=# \q
+
+postgres@otus-pg:~$ pgbench -c16 -P 60 -T 600 postgres
+pgbench (15.2 (Debian 15.2-1.pgdg110+1))
+starting vacuum...end.
+progress: 60.0 s, 938.4 tps, lat 10.010 ms stddev 19.466, 0 failed
+progress: 120.0 s, 846.8 tps, lat 11.754 ms stddev 53.650, 0 failed
+progress: 180.0 s, 853.4 tps, lat 11.690 ms stddev 63.939, 0 failed
+progress: 240.0 s, 846.2 tps, lat 11.721 ms stddev 60.053, 0 failed
+progress: 300.0 s, 820.1 tps, lat 12.541 ms stddev 73.324, 0 failed
+progress: 360.0 s, 837.0 tps, lat 12.126 ms stddev 83.693, 0 failed
+progress: 420.0 s, 861.7 tps, lat 11.411 ms stddev 59.418, 0 failed
+progress: 480.0 s, 889.4 tps, lat 11.053 ms stddev 48.792, 0 failed
+progress: 540.0 s, 908.8 tps, lat 10.696 ms stddev 43.003, 0 failed
+progress: 600.0 s, 874.6 tps, lat 11.344 ms stddev 53.970, 0 failed
+transaction type: <builtin: TPC-B (sort of)>
+scaling factor: 500
+query mode: simple
+number of clients: 16
+number of threads: 1
+maximum number of tries: 1
+duration: 600 s
+number of transactions actually processed: 520603
+number of failed transactions: 0 (0.000%)
+latency average = 11.409 ms
+latency stddev = 57.810 ms
+initial connection time = 57.836 ms
+tps = 867.650383 (without initial connection time)
+
+
+ALTER SYSTEM SET
+    autovacuum_naptime = '15.0';
+ALTER SYSTEM SET
+    autovacuum_vacuum_threshold = '25';
+ALTER SYSTEM SET
+    autovacuum_vacuum_scale_factor = '0.05';
+ALTER SYSTEM SET
+    autovacuum_vacuum_cost_delay = '5.0';
+ALTER SYSTEM SET
+    autovacuum_vacuum_cost_limit = '500';
+
+postgres@otus-pg:~$ pgbench -c16 -P 60 -T 600 postgres
+pgbench (15.2 (Debian 15.2-1.pgdg110+1))
+starting vacuum...end.
+progress: 60.0 s, 933.5 tps, lat 10.138 ms stddev 36.100, 0 failed
+progress: 120.0 s, 839.0 tps, lat 11.965 ms stddev 69.134, 0 failed
+progress: 180.0 s, 924.3 tps, lat 10.406 ms stddev 37.801, 0 failed
+progress: 240.0 s, 932.6 tps, lat 10.185 ms stddev 25.280, 0 failed
+progress: 300.0 s, 892.1 tps, lat 11.158 ms stddev 60.144, 0 failed
+progress: 360.0 s, 934.5 tps, lat 10.247 ms stddev 32.332, 0 failed
+progress: 420.0 s, 935.1 tps, lat 10.147 ms stddev 21.045, 0 failed
+progress: 480.0 s, 936.2 tps, lat 10.233 ms stddev 42.679, 0 failed
+progress: 540.0 s, 909.5 tps, lat 10.691 ms stddev 41.020, 0 failed
+progress: 600.0 s, 886.8 tps, lat 10.984 ms stddev 55.452, 0 failed
+transaction type: <builtin: TPC-B (sort of)>
+scaling factor: 500
+query mode: simple
+number of clients: 16
+number of threads: 1
+maximum number of tries: 1
+duration: 600 s
+number of transactions actually processed: 547417
+number of failed transactions: 0 (0.000%)
+latency average = 10.597 ms
+latency stddev = 44.079 ms
+initial connection time = 75.126 ms
+tps = 912.365987 (without initial connection time)
+
+postgres=# SELECT pg_size_pretty(pg_database_size(current_database()));
+ pg_size_pretty
+----------------
+ 7601 MB
+(1 row)
+
+
+postgres=# SELECT relname,n_live_tup
+  FROM pg_stat_user_tables;
+     relname      | n_live_tup
+------------------+------------
+ pgbench_accounts |   50000053
+ pgbench_tellers  |       5000
+ pgbench_branches |        500
+ pgbench_history  |     547029
+(4 rows)
+
+
+postgres=# drop table  pgbench_accounts; drop table  pgbench_tellers; drop table  pgbench_branches; drop table  pgbench_history;
+
+postgres=# SELECT relname,n_live_tup
+  FROM pg_stat_user_tables;
+ relname | n_live_tup
+---------+------------
+(0 rows)
+
+postgres=# SELECT pg_size_pretty(pg_database_size(current_database()));
+ pg_size_pretty
+----------------
+ 7641 kB
+(1 row)
+
+
+
+postgres@otus-pg:~/sysbench-tpcc$ rm /var/lib/postgresql/15/20230318/postgresql.auto.conf
+
+postgres@otus-pg:~/sysbench-tpcc$ pg_ctlcluster 15 20230318 restart
+Warning: the cluster will not be running as a systemd service. Consider using systemctl:
+  sudo systemctl start postgresql@15-20230318
+postgres@otus-pg:~/sysbench-tpcc$ pg_lsclusters
+Ver Cluster  Port Status Owner    Data directory                  Log file
+15  20230318 5432 online postgres /var/lib/postgresql/15/20230318 /var/log/postgresql/postgresql-15-20230318.log
+
+postgres@otus-pg:~/sysbench-tpcc$ psql
+psql (15.2 (Debian 15.2-1.pgdg110+1))
+Type "help" for help.
+
+postgres=# SELECT relname,n_live_tup
+  FROM pg_stat_user_tables;
+ relname | n_live_tup
+---------+------------
+(0 rows)
+
+postgres=# SELECT pg_size_pretty(pg_database_size(current_database()));
+ pg_size_pretty
+----------------
+ 7893 kB
+(1 row)
+
+postgres=# select
+       name, setting, unit, vartype, context
+from pg_settings
+where name in ('max_connections',
+               'shared_buffers',
+               'effective_cache_size',
+               'maintenance_work_mem',
+               'checkpoint_completion_target',
+               'wal_buffers',
+               'default_statistics_target',
+               'random_page_cost',
+               'effective_io_concurrency',
+               'work_mem',
+               'min_wal_size',
+               'max_wal_size',
+               'synchronous_commit',
+               'autovacuum',
+               'log_autovacuum_min_duration',
+               'autovacuum_max_workers',
+               'autovacuum_naptime',
+               'autovacuum_vacuum_threshold',
+               'autovacuum_vacuum_scale_factor',
+               'autovacuum_vacuum_cost_delay',
+               'autovacuum_vacuum_cost_limit',
+               'log_lock_waits',
+               'deadlock_timeout',
+               'checkpoint_timeout');
+              name              | setting | unit | vartype |  context
+--------------------------------+---------+------+---------+------------
+ autovacuum                     | on      |      | bool    | sighup
+ autovacuum_max_workers         | 3       |      | integer | postmaster
+ autovacuum_naptime             | 60      | s    | integer | sighup
+ autovacuum_vacuum_cost_delay   | 2       | ms   | real    | sighup
+ autovacuum_vacuum_cost_limit   | -1      |      | integer | sighup
+ autovacuum_vacuum_scale_factor | 0.2     |      | real    | sighup
+ autovacuum_vacuum_threshold    | 50      |      | integer | sighup
+ checkpoint_completion_target   | 0.9     |      | real    | sighup
+ checkpoint_timeout             | 300     | s    | integer | sighup
+ deadlock_timeout               | 1000    | ms   | integer | superuser
+ default_statistics_target      | 100     |      | integer | user
+ effective_cache_size           | 524288  | 8kB  | integer | user
+ effective_io_concurrency       | 1       |      | integer | user
+ log_autovacuum_min_duration    | 600000  | ms   | integer | sighup
+ log_lock_waits                 | off     |      | bool    | superuser
+ maintenance_work_mem           | 65536   | kB   | integer | user
+ max_connections                | 100     |      | integer | postmaster
+ max_wal_size                   | 1024    | MB   | integer | sighup
+ min_wal_size                   | 80      | MB   | integer | sighup
+ random_page_cost               | 4       |      | real    | user
+ shared_buffers                 | 16384   | 8kB  | integer | postmaster
+ synchronous_commit             | on      |      | enum    | user
+ wal_buffers                    | 512     | 8kB  | integer | postmaster
+ work_mem                       | 4096    | kB   | integer | user
+(24 rows)
