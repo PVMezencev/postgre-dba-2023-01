@@ -1,0 +1,576 @@
+1 ВАРИАНТ
+
+superman@pvmezentsev:~$ sudo -u postgres pg_createcluster 15 main
+Creating new PostgreSQL cluster 15/main ...
+/usr/lib/postgresql/15/bin/initdb -D /var/lib/postgresql/15/main --auth-local peer --auth-host scram-sha-256 --no-instructions
+The files belonging to this database system will be owned by user "postgres".
+This user must also own the server process.
+
+The database cluster will be initialized with this locale configuration:
+  provider:    libc
+  LC_COLLATE:  en_US.UTF-8
+  LC_CTYPE:    en_US.UTF-8
+  LC_MESSAGES: en_US.UTF-8
+  LC_MONETARY: ru_RU.UTF-8
+  LC_NUMERIC:  ru_RU.UTF-8
+  LC_TIME:     ru_RU.UTF-8
+The default database encoding has accordingly been set to "UTF8".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+fixing permissions on existing directory /var/lib/postgresql/15/main ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default max_connections ... 100
+selecting default shared_buffers ... 128MB
+selecting default time zone ... Asia/Yekaterinburg
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+Warning: systemd does not know about the new cluster yet. Operations like "service postgresql start" will not handle it. To fix, run:
+  sudo systemctl daemon-reload
+Ver Cluster Port Status Owner    Data directory              Log file
+15  main    5432 down   postgres /var/lib/postgresql/15/main /var/log/postgresql/postgresql-15-main.log
+superman@pvmezentsev:~$ sudo systemctl daemon-reload
+superman@pvmezentsev:~$ sudo -u postgres pg_lsclusters
+Ver Cluster Port Status Owner    Data directory              Log file
+15  main    5432 down   postgres /var/lib/postgresql/15/main /var/log/postgresql/postgresql-15-main.log
+superman@pvmezentsev:~$ sudo -u postgres pg_ctlcluster 15 main start
+Warning: the cluster will not be running as a systemd service. Consider using systemctl:
+  sudo systemctl start postgresql@15-main
+superman@pvmezentsev:~$ sudo -u postgres pg_lsclusters
+Ver Cluster Port Status Owner    Data directory              Log file
+15  main    5432 online postgres /var/lib/postgresql/15/main /var/log/postgresql/postgresql-15-main.log
+superman@pvmezentsev:~$
+
+postgres@pvmezentsev:~$ psql
+psql (15.2 (Debian 15.2-1.pgdg110+1))
+Type "help" for help.
+
+postgres=# create table test as
+select generate_series as id
+        , generate_series::text || (random() * 10)::text as col2
+    , (array['Yes', 'No', 'Maybe'])[floor(random() * 3 + 1)] as is_okay
+from generate_series(1, 50000);
+SELECT 50000
+postgres=# explain
+select id from test where id = 49000;
+                      QUERY PLAN
+-------------------------------------------------------
+ Seq Scan on test  (cost=0.00..1007.00 rows=1 width=4)
+   Filter: (id = 49000)
+(2 rows)
+
+postgres=# explain
+select id from test where id = 1;
+                      QUERY PLAN
+-------------------------------------------------------
+ Seq Scan on test  (cost=0.00..1007.00 rows=1 width=4)
+   Filter: (id = 1)
+(2 rows)
+
+postgres=# create index idx_test_id on test(id);
+CREATE INDEX
+postgres=# explain
+select id from test where id = 1;
+                                 QUERY PLAN
+-----------------------------------------------------------------------------
+ Index Only Scan using idx_test_id on test  (cost=0.29..4.31 rows=1 width=4)
+   Index Cond: (id = 1)
+(2 rows)
+
+postgres=#
+
+postgres=# create table orders (
+    id int,
+    user_id int,
+    order_date date,
+    status text,
+    some_text text
+);
+CREATE TABLE
+postgres=#
+
+postgres=# insert into orders(id, user_id, order_date, status, some_text)
+select generate_series, (random() * 70), date'2019-01-01' + (random() * 300)::int as order_date
+        , (array['returned', 'completed', 'placed', 'shipped'])[(random() * 4)::int]
+        , concat_ws(' ', (array['go', 'space', 'sun', 'London'])[(random() * 5)::int]
+            , (array['the', 'capital', 'of', 'Great', 'Britain'])[(random() * 6)::int]
+            , (array['some', 'another', 'example', 'with', 'words'])[(random() * 6)::int]
+            )
+from generate_series(1, 500000);
+INSERT 0 500000
+postgres=#
+
+postgres=# explain select some_text, to_tsvector(some_text) @@ to_tsquery('britains')
+from orders;
+                                   QUERY PLAN
+---------------------------------------------------------------------------------
+ Gather  (cost=1000.00..394177.41 rows=1222735 width=15)
+   Workers Planned: 2
+   ->  Parallel Seq Scan on orders  (cost=0.00..270903.91 rows=509473 width=15)
+ JIT:
+   Functions: 2
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+(6 rows)
+
+postgres=#
+
+postgres=# CREATE INDEX search_index_some_text ON orders USING GIN (to_tsvector(some_text));
+ERROR:  functions in index expression must be marked IMMUTABLE
+postgres=# CREATE INDEX search_index_some_text ON orders USING GIN (to_tsvector('english', some_text));
+CREATE INDEX
+postgres=#
+
+postgres=# explain select some_text, to_tsvector(some_text) @@ to_tsquery('britains')
+from orders;
+                                   QUERY PLAN
+---------------------------------------------------------------------------------
+ Gather  (cost=1000.00..167569.67 rows=500000 width=15)
+   Workers Planned: 2
+   ->  Parallel Seq Scan on orders  (cost=0.00..116569.67 rows=208333 width=15)
+ JIT:
+   Functions: 2
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+(6 rows)
+
+postgres=#
+
+
+postgres=# create index idx_test_id_100 on test(id) where id < 100;
+CREATE INDEX
+postgres=# explain
+select * from test where id < 50;
+                                QUERY PLAN
+--------------------------------------------------------------------------
+ Index Scan using idx_test_id on test  (cost=0.29..9.16 rows=50 width=31)
+   Index Cond: (id < 50)
+(2 rows)
+
+postgres=# explain
+select * from test where id > 150;
+                         QUERY PLAN
+------------------------------------------------------------
+ Seq Scan on test  (cost=0.00..1007.00 rows=49846 width=31)
+   Filter: (id > 150)
+(2 rows)
+
+postgres=#
+
+postgres=# alter table orders add column some_text_lexeme tsvector;
+ALTER TABLE
+postgres=# update orders
+set some_text_lexeme = to_tsvector(some_text);
+UPDATE 500000
+postgres=#
+
+postgres=# explain
+select some_text
+from orders
+where some_text_lexeme @@ to_tsquery('britains');
+                                  QUERY PLAN
+------------------------------------------------------------------------------
+ Gather  (cost=1000.00..74019.80 rows=85333 width=14)
+   Workers Planned: 2
+   ->  Parallel Seq Scan on orders  (cost=0.00..64486.50 rows=35555 width=14)
+         Filter: (some_text_lexeme @@ to_tsquery('britains'::text))
+(4 rows)
+
+postgres=#
+
+postgres=# CREATE INDEX search_index_ord ON orders USING GIN (some_text_lexeme);
+CREATE INDEX
+postgres=# explain
+select *
+from orders
+where some_text_lexeme @@ to_tsquery('britains');
+                                        QUERY PLAN
+-------------------------------------------------------------------------------------------
+ Gather  (cost=1793.58..29459.18 rows=85333 width=63)
+   Workers Planned: 2
+   ->  Parallel Bitmap Heap Scan on orders  (cost=793.58..19925.88 rows=35555 width=63)
+         Recheck Cond: (some_text_lexeme @@ to_tsquery('britains'::text))
+         ->  Bitmap Index Scan on search_index_ord  (cost=0.00..772.25 rows=85333 width=0)
+               Index Cond: (some_text_lexeme @@ to_tsquery('britains'::text))
+(6 rows)
+
+postgres=#
+
+postgres=#
+explain
+select * from test where id = 1 and is_okay = 'True';
+                                 QUERY PLAN
+-----------------------------------------------------------------------------
+ Index Scan using idx_test_id_100 on test  (cost=0.14..8.16 rows=1 width=31)
+   Index Cond: (id = 1)
+   Filter: (is_okay = 'True'::text)
+(3 rows)
+
+postgres=#
+explain
+select * from test where id = 1;
+                                 QUERY PLAN
+-----------------------------------------------------------------------------
+ Index Scan using idx_test_id_100 on test  (cost=0.14..8.16 rows=1 width=31)
+   Index Cond: (id = 1)
+(2 rows)
+
+postgres=#
+explain
+select * from test where is_okay = 'True';
+                       QUERY PLAN
+--------------------------------------------------------
+ Seq Scan on test  (cost=0.00..1007.00 rows=1 width=31)
+   Filter: (is_okay = 'True'::text)
+(2 rows)
+
+postgres=#
+
+postgres=#
+create index idx_test_id_is_okay on test(id, is_okay);
+CREATE INDEX
+postgres=#
+explain
+select * from test where id = 1 and is_okay = 'True';
+                                   QUERY PLAN
+---------------------------------------------------------------------------------
+ Index Scan using idx_test_id_is_okay on test  (cost=0.29..6.06 rows=1 width=31)
+   Index Cond: ((id = 1) AND (is_okay = 'True'::text))
+(2 rows)
+
+postgres=#
+explain
+select * from test where id = 1;
+                                 QUERY PLAN
+-----------------------------------------------------------------------------
+ Index Scan using idx_test_id_100 on test  (cost=0.14..8.16 rows=1 width=31)
+   Index Cond: (id = 1)
+(2 rows)
+
+postgres=#
+explain
+select * from test where is_okay = 'True';
+                       QUERY PLAN
+--------------------------------------------------------
+ Seq Scan on test  (cost=0.00..1007.00 rows=1 width=31)
+   Filter: (is_okay = 'True'::text)
+(2 rows)
+
+Поиск по второму полю индекса не использует составной индекс (проверено на 14 и 15 версии пострге)
+
+postgres=#
+
+
+2 ВАРИАНТ
+
+
+postgres=# create table bus (id serial,route text,id_model int);
+create table model_bus (id serial,name text);;
+insert into bus values (1,'Москва-Болшево',1),(2,'Москва-Пушкино',1),(3,'Москва-Ярославль',2),(4,'Москва-Кострома',2),(5,'Москва-Волгорад',3),
+                       (6,'Москва-Иваново',null),(7,'Москва-Саратов',null),(8,'Москва-Воронеж',null);
+insert into model_bus values(1,'ПАЗ'),(2,'ЛИАЗ'),(3,'MAN'),(4,'МАЗ'),(5,'НЕФАЗ'),(6,'ЗиС'),(7,'Икарус');
+CREATE TABLE
+CREATE TABLE
+INSERT 0 8
+INSERT 0 7
+postgres=# analyse bus;
+analyse model_bus;
+ANALYZE
+ANALYZE
+postgres=# explain
+select *
+from bus b
+join model_bus mb
+    on b.id_model=mb.id;
+                               QUERY PLAN
+-------------------------------------------------------------------------
+ Hash Join  (cost=1.16..2.32 rows=5 width=49)
+   Hash Cond: (b.id_model = mb.id)
+   ->  Seq Scan on bus b  (cost=0.00..1.08 rows=8 width=37)
+   ->  Hash  (cost=1.07..1.07 rows=7 width=12)
+         ->  Seq Scan on model_bus mb  (cost=0.00..1.07 rows=7 width=12)
+(5 rows)
+
+postgres=# select *
+from bus b
+join model_bus mb
+    on b.id_model=mb.id;
+ id |      route       | id_model | id | name
+----+------------------+----------+----+------
+  1 | Москва-Болшево   |        1 |  1 | ПАЗ
+  2 | Москва-Пушкино   |        1 |  1 | ПАЗ
+  3 | Москва-Ярославль |        2 |  2 | ЛИАЗ
+  4 | Москва-Кострома  |        2 |  2 | ЛИАЗ
+  5 | Москва-Волгорад  |        3 |  3 | MAN
+(5 rows)
+
+postgres=# select *
+from bus b,model_bus mb
+where b.id_model=mb.id;
+ id |      route       | id_model | id | name
+----+------------------+----------+----+------
+  1 | Москва-Болшево   |        1 |  1 | ПАЗ
+  2 | Москва-Пушкино   |        1 |  1 | ПАЗ
+  3 | Москва-Ярославль |        2 |  2 | ЛИАЗ
+  4 | Москва-Кострома  |        2 |  2 | ЛИАЗ
+  5 | Москва-Волгорад  |        3 |  3 | MAN
+(5 rows)
+
+postgres=# explain
+select *
+from bus b,model_bus mb
+where b.id_model=mb.id;
+                               QUERY PLAN
+-------------------------------------------------------------------------
+ Hash Join  (cost=1.16..2.32 rows=5 width=49)
+   Hash Cond: (b.id_model = mb.id)
+   ->  Seq Scan on bus b  (cost=0.00..1.08 rows=8 width=37)
+   ->  Hash  (cost=1.07..1.07 rows=7 width=12)
+         ->  Seq Scan on model_bus mb  (cost=0.00..1.07 rows=7 width=12)
+(5 rows)
+
+postgres=#
+
+postgres=# select *
+from bus b
+left join model_bus mb
+    on b.id_model=mb.id;
+ id |      route       | id_model | id | name
+----+------------------+----------+----+------
+  1 | Москва-Болшево   |        1 |  1 | ПАЗ
+  2 | Москва-Пушкино   |        1 |  1 | ПАЗ
+  3 | Москва-Ярославль |        2 |  2 | ЛИАЗ
+  4 | Москва-Кострома  |        2 |  2 | ЛИАЗ
+  5 | Москва-Волгорад  |        3 |  3 | MAN
+  6 | Москва-Иваново   |          |    |
+  7 | Москва-Саратов   |          |    |
+  8 | Москва-Воронеж   |          |    |
+(8 rows)
+
+postgres=# select *
+from bus b
+right join model_bus mb
+    on b.id_model=mb.id;
+ id |      route       | id_model | id |  name
+----+------------------+----------+----+--------
+  1 | Москва-Болшево   |        1 |  1 | ПАЗ
+  2 | Москва-Пушкино   |        1 |  1 | ПАЗ
+  3 | Москва-Ярославль |        2 |  2 | ЛИАЗ
+  4 | Москва-Кострома  |        2 |  2 | ЛИАЗ
+  5 | Москва-Волгорад  |        3 |  3 | MAN
+    |                  |          |  5 | НЕФАЗ
+    |                  |          |  6 | ЗиС
+    |                  |          |  4 | МАЗ
+    |                  |          |  7 | Икарус
+(9 rows)
+
+postgres=# select *
+from bus b
+left join model_bus mb on b.id_model=mb.id
+where mb.id is null;
+ id |     route      | id_model | id | name
+----+----------------+----------+----+------
+  6 | Москва-Иваново |          |    |
+  7 | Москва-Саратов |          |    |
+  8 | Москва-Воронеж |          |    |
+(3 rows)
+
+postgres=# select *
+from bus b
+right join model_bus mb on b.id_model=mb.id
+where b.id
+    is null;
+ id | route | id_model | id |  name
+----+-------+----------+----+--------
+    |       |          |  5 | НЕФАЗ
+    |       |          |  6 | ЗиС
+    |       |          |  4 | МАЗ
+    |       |          |  7 | Икарус
+(4 rows)
+
+postgres=#
+
+
+postgres=# select *
+from bus b
+full join model_bus mb on b.id_model=mb.id;
+ id |      route       | id_model | id |  name
+----+------------------+----------+----+--------
+  1 | Москва-Болшево   |        1 |  1 | ПАЗ
+  2 | Москва-Пушкино   |        1 |  1 | ПАЗ
+  3 | Москва-Ярославль |        2 |  2 | ЛИАЗ
+  4 | Москва-Кострома  |        2 |  2 | ЛИАЗ
+  5 | Москва-Волгорад  |        3 |  3 | MAN
+  6 | Москва-Иваново   |          |    |
+  7 | Москва-Саратов   |          |    |
+  8 | Москва-Воронеж   |          |    |
+    |                  |          |  5 | НЕФАЗ
+    |                  |          |  6 | ЗиС
+    |                  |          |  4 | МАЗ
+    |                  |          |  7 | Икарус
+(12 rows)
+
+postgres=# select *
+from bus b
+full join model_bus mb on b.id_model=mb.id
+where b.id is null or mb.id is null;
+ id |     route      | id_model | id |  name
+----+----------------+----------+----+--------
+  6 | Москва-Иваново |          |    |
+  7 | Москва-Саратов |          |    |
+  8 | Москва-Воронеж |          |    |
+    |                |          |  5 | НЕФАЗ
+    |                |          |  6 | ЗиС
+    |                |          |  4 | МАЗ
+    |                |          |  7 | Икарус
+(7 rows)
+
+postgres=#
+
+
+postgres=# select *
+from bus b
+cross join model_bus mb;
+
+ id |      route       | id_model | id |  name
+----+------------------+----------+----+--------
+  1 | Москва-Болшево   |        1 |  1 | ПАЗ
+  1 | Москва-Болшево   |        1 |  2 | ЛИАЗ
+  1 | Москва-Болшево   |        1 |  3 | MAN
+  1 | Москва-Болшево   |        1 |  4 | МАЗ
+  1 | Москва-Болшево   |        1 |  5 | НЕФАЗ
+  1 | Москва-Болшево   |        1 |  6 | ЗиС
+  1 | Москва-Болшево   |        1 |  7 | Икарус
+  2 | Москва-Пушкино   |        1 |  1 | ПАЗ
+  2 | Москва-Пушкино   |        1 |  2 | ЛИАЗ
+  2 | Москва-Пушкино   |        1 |  3 | MAN
+  2 | Москва-Пушкино   |        1 |  4 | МАЗ
+  2 | Москва-Пушкино   |        1 |  5 | НЕФАЗ
+  2 | Москва-Пушкино   |        1 |  6 | ЗиС
+  2 | Москва-Пушкино   |        1 |  7 | Икарус
+  3 | Москва-Ярославль |        2 |  1 | ПАЗ
+  3 | Москва-Ярославль |        2 |  2 | ЛИАЗ
+  3 | Москва-Ярославль |        2 |  3 | MAN
+  3 | Москва-Ярославль |        2 |  4 | МАЗ
+  3 | Москва-Ярославль |        2 |  5 | НЕФАЗ
+  3 | Москва-Ярославль |        2 |  6 | ЗиС
+  3 | Москва-Ярославль |        2 |  7 | Икарус
+  4 | Москва-Кострома  |        2 |  1 | ПАЗ
+  4 | Москва-Кострома  |        2 |  2 | ЛИАЗ
+  4 | Москва-Кострома  |        2 |  3 | MAN
+  4 | Москва-Кострома  |        2 |  4 | МАЗ
+  4 | Москва-Кострома  |        2 |  5 | НЕФАЗ
+  4 | Москва-Кострома  |        2 |  6 | ЗиС
+  4 | Москва-Кострома  |        2 |  7 | Икарус
+  5 | Москва-Волгорад  |        3 |  1 | ПАЗ
+  5 | Москва-Волгорад  |        3 |  2 | ЛИАЗ
+  5 | Москва-Волгорад  |        3 |  3 | MAN
+  5 | Москва-Волгорад  |        3 |  4 | МАЗ
+  5 | Москва-Волгорад  |        3 |  5 | НЕФАЗ
+  5 | Москва-Волгорад  |        3 |  6 | ЗиС
+  5 | Москва-Волгорад  |        3 |  7 | Икарус
+  6 | Москва-Иваново   |          |  1 | ПАЗ
+  6 | Москва-Иваново   |          |  2 | ЛИАЗ
+  6 | Москва-Иваново   |          |  3 | MAN
+  6 | Москва-Иваново   |          |  4 | МАЗ
+  6 | Москва-Иваново   |          |  5 | НЕФАЗ
+  6 | Москва-Иваново   |          |  6 | ЗиС
+  6 | Москва-Иваново   |          |  7 | Икарус
+  7 | Москва-Саратов   |          |  1 | ПАЗ
+  7 | Москва-Саратов   |          |  2 | ЛИАЗ
+  7 | Москва-Саратов   |          |  3 | MAN
+  7 | Москва-Саратов   |          |  4 | МАЗ
+  7 | Москва-Саратов   |          |  5 | НЕФАЗ
+  7 | Москва-Саратов   |          |  6 | ЗиС
+  7 | Москва-Саратов   |          |  7 | Икарус
+  8 | Москва-Воронеж   |          |  1 | ПАЗ
+  8 | Москва-Воронеж   |          |  2 | ЛИАЗ
+  8 | Москва-Воронеж   |          |  3 | MAN
+  8 | Москва-Воронеж   |          |  4 | МАЗ
+  8 | Москва-Воронеж   |          |  5 | НЕФАЗ
+  8 | Москва-Воронеж   |          |  6 | ЗиС
+  8 | Москва-Воронеж   |          |  7 | Икарус
+(56 rows)
+
+
+
+postgres=# create table schedule (id_bus int, day int);
+CREATE TABLE
+postgres=# select * from bus where id_model is not null;
+ id |      route       | id_model
+----+------------------+----------
+  1 | Москва-Болшево   |        1
+  2 | Москва-Пушкино   |        1
+  3 | Москва-Ярославль |        2
+  4 | Москва-Кострома  |        2
+  5 | Москва-Волгорад  |        3
+(5 rows)
+
+postgres=# insert into schedule values (1,1),(1,5),(2,2),(3,5),(4,6),(4,0),(5,0);
+INSERT 0 7
+postgres=#
+
+postgres=# select b.route, (select case
+when sched.day=1 then 'ПН'
+when sched.day=2 then 'ВТ'
+when sched.day=3 then 'СР'
+when sched.day=4 then 'ЧТ'
+when sched.day=5 then 'ПТ'
+when sched.day=6 then 'СБ'
+when sched.day=0 then 'ВС'
+END) as day_name, mb.name
+from bus b
+join schedule sched
+    on b.id=sched.id_bus
+left join model_bus mb on b.id_model=mb.id
+where b.route like 'Москва%';
+      route       | day_name | name
+------------------+----------+------
+ Москва-Болшево   | ПН       | ПАЗ
+ Москва-Болшево   | ПТ       | ПАЗ
+ Москва-Пушкино   | ВТ       | ПАЗ
+ Москва-Ярославль | ПТ       | ЛИАЗ
+ Москва-Кострома  | СБ       | ЛИАЗ
+ Москва-Кострома  | ВС       | ЛИАЗ
+ Москва-Волгорад  | ВС       | MAN
+(7 rows)
+
+postgres=#
+
+postgres=# select b.route, (select case
+when sched.day=1 then 'ПН'
+when sched.day=2 then 'ВТ'
+when sched.day=3 then 'СР'
+when sched.day=4 then 'ЧТ'
+when sched.day=5 then 'ПТ'
+when sched.day=6 then 'СБ'
+when sched.day=0 then 'ВС'
+END) as day_name, mb.name
+from bus b
+join schedule sched
+    on b.id=sched.id_bus
+left join model_bus mb on b.id_model=mb.id
+where b.route like '%Кострома';
+      route      | day_name | name
+-----------------+----------+------
+ Москва-Кострома | СБ       | ЛИАЗ
+ Москва-Кострома | ВС       | ЛИАЗ
+(2 rows)
+
+postgres=#
+
+postgres=# select b.route, mb.name
+from bus b
+join schedule sched
+    on b.id=sched.id_bus
+left join model_bus mb on b.id_model=mb.id
+where sched.day = extract(dow from current_date::date);
+      route      | name
+-----------------+------
+ Москва-Кострома | ЛИАЗ
+ Москва-Волгорад | MAN
+(2 rows)
+
+postgres=#
