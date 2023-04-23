@@ -574,3 +574,27 @@ where sched.day = extract(dow from current_date::date);
 (2 rows)
 
 postgres=#
+
+postgres=# \d bus;
+                             Table "public.bus"
+  Column  |  Type   | Collation | Nullable |             Default
+----------+---------+-----------+----------+---------------------------------
+ id       | integer |           | not null | nextval('bus_id_seq'::regclass)
+ route    | text    |           |          |
+ id_model | integer |           |          |
+
+postgres=# \d model_bus;
+                            Table "public.model_bus"
+ Column |  Type   | Collation | Nullable |                Default
+--------+---------+-----------+----------+---------------------------------------
+ id     | integer |           | not null | nextval('model_bus_id_seq'::regclass)
+ name   | text    |           |          |
+
+postgres=# \d schedule;
+              Table "public.schedule"
+ Column |  Type   | Collation | Nullable | Default
+--------+---------+-----------+----------+---------
+ id_bus | integer |           |          |
+ day    | integer |           |          |
+
+postgres=#

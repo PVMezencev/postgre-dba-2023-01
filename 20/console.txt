@@ -1,0 +1,368 @@
+postgres@pvmezentsev:~$ wget https://edu.postgrespro.com/demo-medium-en.zip
+--2023-04-23 23:04:54--  https://edu.postgrespro.com/demo-medium-en.zip
+Resolving edu.postgrespro.com (edu.postgrespro.com)... 213.171.56.196
+Connecting to edu.postgrespro.com (edu.postgrespro.com)|213.171.56.196|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 64544920 (62M) [application/zip]
+Saving to: ‘demo-medium-en.zip’
+
+demo-medium-en.zip                                 100%[==============================================================================================================>]  61,55M  11,6MB/s    in 5,4s
+
+2023-04-23 23:04:59 (11,4 MB/s) - ‘demo-medium-en.zip’ saved [64544920/64544920]
+
+postgres@pvmezentsev:~$ unzip demo-medium-en.zip
+Archive:  demo-medium-en.zip
+  inflating: demo-medium-en-20170815.sql
+postgres@pvmezentsev:~$ ls
+13  14a  15  demo-medium-en-20170815.sql  demo-medium-en.zip  sysbench-tpcc
+postgres@pvmezentsev:~$
+
+postgres@pvmezentsev:~$ psql
+psql (15.2 (Debian 15.2-1.pgdg110+1))
+Type "help" for help.
+
+postgres=# create database demo;
+CREATE DATABASE
+postgres=# \c demo
+You are now connected to database "demo" as user "postgres".
+demo=# \i demo-medium-en-20170815.sql
+
+demo=# SELECT nspname || '.' || relname AS "relation",
+    pg_size_pretty(pg_total_relation_size(C.oid)) AS "total_size"
+  FROM pg_class C
+  LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+  WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+    AND C.relkind <> 'i'
+    AND nspname !~ '^pg_toast'
+  ORDER BY pg_total_relation_size(C.oid) DESC;
+            relation            | total_size
+--------------------------------+------------
+ bookings.boarding_passes       | 263 MB
+ bookings.ticket_flights        | 245 MB
+ bookings.tickets               | 134 MB
+ bookings.bookings              | 42 MB
+ bookings.flights               | 9872 kB
+ bookings.seats                 | 144 kB
+ bookings.airports_data         | 72 kB
+ bookings.aircrafts_data        | 32 kB
+ bookings.flights_flight_id_seq | 8192 bytes
+ bookings.aircrafts             | 0 bytes
+ bookings.flights_v             | 0 bytes
+ bookings.airports              | 0 bytes
+ bookings.routes                | 0 bytes
+(13 rows)
+
+demo=# \d flights
+                                              Table "bookings.flights"
+       Column        |           Type           | Collation | Nullable |                  Default
+---------------------+--------------------------+-----------+----------+--------------------------------------------
+ flight_id           | integer                  |           | not null | nextval('flights_flight_id_seq'::regclass)
+ flight_no           | character(6)             |           | not null |
+ scheduled_departure | timestamp with time zone |           | not null |
+ scheduled_arrival   | timestamp with time zone |           | not null |
+ departure_airport   | character(3)             |           | not null |
+ arrival_airport     | character(3)             |           | not null |
+ status              | character varying(20)    |           | not null |
+ aircraft_code       | character(3)             |           | not null |
+ actual_departure    | timestamp with time zone |           |          |
+ actual_arrival      | timestamp with time zone |           |          |
+Indexes:
+    "flights_pkey" PRIMARY KEY, btree (flight_id)
+    "flights_flight_no_scheduled_departure_key" UNIQUE CONSTRAINT, btree (flight_no, scheduled_departure)
+Check constraints:
+    "flights_check" CHECK (scheduled_arrival > scheduled_departure)
+    "flights_check1" CHECK (actual_arrival IS NULL OR actual_departure IS NOT NULL AND actual_arrival IS NOT NULL AND actual_arrival > actual_departure)
+    "flights_status_check" CHECK (status::text = ANY (ARRAY['On Time'::character varying::text, 'Delayed'::character varying::text, 'Departed'::character varying::text, 'Arrived'::character varying::text, 'Scheduled'::character varying::text, 'Cancelled'::character varying::text]))
+Foreign-key constraints:
+    "flights_aircraft_code_fkey" FOREIGN KEY (aircraft_code) REFERENCES aircrafts_data(aircraft_code)
+    "flights_arrival_airport_fkey" FOREIGN KEY (arrival_airport) REFERENCES airports_data(airport_code)
+    "flights_departure_airport_fkey" FOREIGN KEY (departure_airport) REFERENCES airports_data(airport_code)
+Referenced by:
+    TABLE "ticket_flights" CONSTRAINT "ticket_flights_flight_id_fkey" FOREIGN KEY (flight_id) REFERENCES flights(flight_id)
+
+demo=#
+
+demo=# select distinct aircraft_code from flights;
+ aircraft_code
+---------------
+ CN1
+ CR2
+ 763
+ 773
+ 319
+ 733
+ SU9
+ 321
+(8 rows)
+
+demo=#
+
+demo=# select min(scheduled_departure), max(scheduled_departure) from flights;
+          min           |          max
+------------------------+------------------------
+ 2017-05-17 04:00:00+05 | 2017-09-14 22:55:00+05
+(1 row)
+
+demo=# CREATE TABLE bookings.flights_range (
+    flight_id integer NOT NULL,
+    flight_no character(6) NOT NULL,
+    scheduled_departure timestamp with time zone NOT NULL,
+    scheduled_arrival timestamp with time zone NOT NULL,
+    departure_airport character(3) NOT NULL,
+    arrival_airport character(3) NOT NULL,
+    status character varying(20) NOT NULL,
+    aircraft_code character(3) NOT NULL,
+    actual_departure timestamp with time zone,
+    actual_arrival timestamp with time zone,
+    CONSTRAINT flights_check CHECK ((scheduled_arrival > scheduled_departure)),
+    CONSTRAINT flights_check1 CHECK (((actual_arrival IS NULL) OR ((actual_departure IS NOT NULL) AND (actual_arrival IS NOT NULL) AND (actual_arrival > actual_departure)))),
+    CONSTRAINT flights_status_check CHECK (((status)::text = ANY (ARRAY[('On Time'::character varying)::text, ('Delayed'::character varying)::text, ('Departed'::character varying)::text, ('Arrived'::character varying)::text, ('Scheduled'::character varying)::text, ('Cancelled'::character varying)::text])))
+)partition by range (scheduled_departure);
+CREATE TABLE
+demo=# create table flights_2017_05 partition of flights_range for values from ('2017-05-01') to ('2017-06-01');
+CREATE TABLE
+demo=# create table flights_2017_06 partition of flights_range for values from ('2017-06-01') to ('2017-07-01');
+CREATE TABLE
+demo=# create table flights_2017_07 partition of flights_range for values from ('2017-07-01') to ('2017-08-01');
+CREATE TABLE
+demo=# create table flights_2017_08 partition of flights_range for values from ('2017-08-01') to ('2017-09-01');
+CREATE TABLE
+demo=# create table flights_2017_09 partition of flights_range for values from ('2017-09-01') to ('2017-10-01');
+CREATE TABLE
+demo=# create table flights_2017_10 partition of flights_range for values from ('2017-10-01') to ('2017-11-01');
+CREATE TABLE
+demo=# create table flights_2017_11 partition of flights_range for values from ('2017-11-01') to ('2017-12-01');
+CREATE TABLE
+demo=# create table flights_2017_12 partition of flights_range for values from ('2017-12-01') to ('2018-01-01');
+CREATE TABLE
+
+demo=# insert into flights_range select * from flights;
+INSERT 0 65664
+demo=#
+
+demo=# \d+ flights_range;
+                                              Partitioned table "bookings.flights_range"
+       Column        |           Type           | Collation | Nullable | Default | Storage  | Compression | Stats target | Description
+---------------------+--------------------------+-----------+----------+---------+----------+-------------+--------------+-------------
+ flight_id           | integer                  |           | not null |         | plain    |             |              |
+ flight_no           | character(6)             |           | not null |         | extended |             |              |
+ scheduled_departure | timestamp with time zone |           | not null |         | plain    |             |              |
+ scheduled_arrival   | timestamp with time zone |           | not null |         | plain    |             |              |
+ departure_airport   | character(3)             |           | not null |         | extended |             |              |
+ arrival_airport     | character(3)             |           | not null |         | extended |             |              |
+ status              | character varying(20)    |           | not null |         | extended |             |              |
+ aircraft_code       | character(3)             |           | not null |         | extended |             |              |
+ actual_departure    | timestamp with time zone |           |          |         | plain    |             |              |
+ actual_arrival      | timestamp with time zone |           |          |         | plain    |             |              |
+Partition key: RANGE (scheduled_departure)
+Check constraints:
+    "flights_check" CHECK (scheduled_arrival > scheduled_departure)
+    "flights_check1" CHECK (actual_arrival IS NULL OR actual_departure IS NOT NULL AND actual_arrival IS NOT NULL AND actual_arrival > actual_departure)
+    "flights_status_check" CHECK (status::text = ANY (ARRAY['On Time'::character varying::text, 'Delayed'::character varying::text, 'Departed'::character varying::text, 'Arrived'::character varying::text, 'Scheduled'::character varying::text, 'Cancelled'::character varying::text]))
+Partitions: flights_2017_05 FOR VALUES FROM ('2017-05-01 00:00:00+05') TO ('2017-06-01 00:00:00+05'),
+            flights_2017_06 FOR VALUES FROM ('2017-06-01 00:00:00+05') TO ('2017-07-01 00:00:00+05'),
+            flights_2017_07 FOR VALUES FROM ('2017-07-01 00:00:00+05') TO ('2017-08-01 00:00:00+05'),
+            flights_2017_08 FOR VALUES FROM ('2017-08-01 00:00:00+05') TO ('2017-09-01 00:00:00+05'),
+            flights_2017_09 FOR VALUES FROM ('2017-09-01 00:00:00+05') TO ('2017-10-01 00:00:00+05'),
+            flights_2017_10 FOR VALUES FROM ('2017-10-01 00:00:00+05') TO ('2017-11-01 00:00:00+05'),
+            flights_2017_11 FOR VALUES FROM ('2017-11-01 00:00:00+05') TO ('2017-12-01 00:00:00+05'),
+            flights_2017_12 FOR VALUES FROM ('2017-12-01 00:00:00+05') TO ('2018-01-01 00:00:00+05')
+
+demo=# begin;
+BEGIN
+demo=*# alter table flights rename to flights_not_range;
+ALTER TABLE
+demo=*# alter table flights_range rename to flights;
+ALTER TABLE
+demo=*# commit;
+COMMIT
+demo=#
+
+CREATE SEQUENCE bookings.flights_flight_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+
+ALTER TABLE bookings.flights_flight_id_seq OWNER TO postgres;
+
+ALTER SEQUENCE bookings.flights_flight_id_seq OWNED BY bookings.flights.flight_id;
+
+ALTER TABLE ONLY bookings.flights ALTER COLUMN flight_id SET DEFAULT nextval('bookings.flights_flight_id_seq'::regclass);
+
+ALTER TABLE ONLY bookings.flights
+    ADD CONSTRAINT flights_flight_no_scheduled_departure_key UNIQUE (flight_no, scheduled_departure);
+
+
+ALTER TABLE ONLY bookings.flights
+    ADD CONSTRAINT flights_pkey PRIMARY KEY (flight_id);
+
+ALTER TABLE ONLY bookings.flights
+    ADD CONSTRAINT flights_aircraft_code_fkey FOREIGN KEY (aircraft_code) REFERENCES bookings.aircrafts_data(aircraft_code);
+
+ALTER TABLE ONLY bookings.flights
+    ADD CONSTRAINT flights_arrival_airport_fkey FOREIGN KEY (arrival_airport) REFERENCES bookings.airports_data(airport_code);
+
+ALTER TABLE ONLY bookings.flights
+    ADD CONSTRAINT flights_departure_airport_fkey FOREIGN KEY (departure_airport) REFERENCES bookings.airports_data(airport_code);
+
+demo=# ALTER TABLE ONLY bookings.flights
+    ADD CONSTRAINT flights_flight_no_scheduled_departure_key UNIQUE (flight_no, scheduled_departure);
+ERROR:  relation "flights_flight_no_scheduled_departure_key" already exists
+demo=#
+
+demo=# drop table flights_not_range;
+ERROR:  cannot drop table flights_not_range because other objects depend on it
+DETAIL:  view flights_v depends on table flights_not_range
+view routes depends on table flights_not_range
+constraint ticket_flights_flight_id_fkey on table ticket_flights depends on table flights_not_range
+HINT:  Use DROP ... CASCADE to drop the dependent objects too.
+
+demo=# drop view flights_v;
+DROP VIEW
+demo=# CREATE VIEW bookings.flights_v AS
+ SELECT f.flight_id,
+    f.flight_no,
+    f.scheduled_departure,
+    timezone(dep.timezone, f.scheduled_departure) AS scheduled_departure_local,
+    f.scheduled_arrival,
+    timezone(arr.timezone, f.scheduled_arrival) AS scheduled_arrival_local,
+    (f.scheduled_arrival - f.scheduled_departure) AS scheduled_duration,
+    f.departure_airport,
+    dep.airport_name AS departure_airport_name,
+    dep.city AS departure_city,
+    f.arrival_airport,
+    arr.airport_name AS arrival_airport_name,
+    arr.city AS arrival_city,
+    f.status,
+    f.aircraft_code,
+    f.actual_departure,
+    timezone(dep.timezone, f.actual_departure) AS actual_departure_local,
+    f.actual_arrival,
+    timezone(arr.timezone, f.actual_arrival) AS actual_arrival_local,
+    (f.actual_arrival - f.actual_departure) AS actual_duration
+   FROM bookings.flights f,
+    bookings.airports dep,
+    bookings.airports arr
+  WHERE ((f.departure_airport = dep.airport_code) AND (f.arrival_airport = arr.airport_code));
+CREATE VIEW
+demo=#
+
+
+CREATE VIEW bookings.routes AS
+ WITH f3 AS (
+         SELECT f2.flight_no,
+            f2.departure_airport,
+            f2.arrival_airport,
+            f2.aircraft_code,
+            f2.duration,
+            array_agg(f2.days_of_week) AS days_of_week
+           FROM ( SELECT f1.flight_no,
+                    f1.departure_airport,
+                    f1.arrival_airport,
+                    f1.aircraft_code,
+                    f1.duration,
+                    f1.days_of_week
+                   FROM ( SELECT flights.flight_no,
+                            flights.departure_airport,
+                            flights.arrival_airport,
+                            flights.aircraft_code,
+                            (flights.scheduled_arrival - flights.scheduled_departure) AS duration,
+                            (to_char(flights.scheduled_departure, 'ID'::text))::integer AS days_of_week
+                           FROM bookings.flights) f1
+                  GROUP BY f1.flight_no, f1.departure_airport, f1.arrival_airport, f1.aircraft_code, f1.duration, f1.days_of_week
+                  ORDER BY f1.flight_no, f1.departure_airport, f1.arrival_airport, f1.aircraft_code, f1.duration, f1.days_of_week) f2
+          GROUP BY f2.flight_no, f2.departure_airport, f2.arrival_airport, f2.aircraft_code, f2.duration
+        )
+ SELECT f3.flight_no,
+    f3.departure_airport,
+    dep.airport_name AS departure_airport_name,
+    dep.city AS departure_city,
+    f3.arrival_airport,
+    arr.airport_name AS arrival_airport_name,
+    arr.city AS arrival_city,
+    f3.aircraft_code,
+    f3.duration,
+    f3.days_of_week
+   FROM f3,
+    bookings.airports dep,
+    bookings.airports arr
+  WHERE ((f3.departure_airport = dep.airport_code) AND (f3.arrival_airport = arr.airport_code));
+
+
+demo=# drop table flights_not_range;
+ERROR:  cannot drop table flights_not_range because other objects depend on it
+DETAIL:  constraint ticket_flights_flight_id_fkey on table ticket_flights depends on table flights_not_range
+HINT:  Use DROP ... CASCADE to drop the dependent objects too.
+
+demo=# \d+ ticket_flights;
+                                                 Table "bookings.ticket_flights"
+     Column      |         Type          | Collation | Nullable | Default | Storage  | Compression | Stats target |  Description
+-----------------+-----------------------+-----------+----------+---------+----------+-------------+--------------+---------------
+ ticket_no       | character(13)         |           | not null |         | extended |             |              | Ticket number
+ flight_id       | integer               |           | not null |         | plain    |             |              | Flight ID
+ fare_conditions | character varying(10) |           | not null |         | extended |             |              | Travel class
+ amount          | numeric(10,2)         |           | not null |         | main     |             |              | Travel cost
+Indexes:
+    "ticket_flights_pkey" PRIMARY KEY, btree (ticket_no, flight_id)
+Check constraints:
+    "ticket_flights_amount_check" CHECK (amount >= 0::numeric)
+    "ticket_flights_fare_conditions_check" CHECK (fare_conditions::text = ANY (ARRAY['Economy'::character varying::text, 'Comfort'::character varying::text, 'Business'::character varying::text]))
+Foreign-key constraints:
+    "ticket_flights_flight_id_fkey" FOREIGN KEY (flight_id) REFERENCES flights_not_range(flight_id)
+    "ticket_flights_ticket_no_fkey" FOREIGN KEY (ticket_no) REFERENCES tickets(ticket_no)
+Referenced by:
+    TABLE "boarding_passes" CONSTRAINT "boarding_passes_ticket_no_fkey" FOREIGN KEY (ticket_no, flight_id) REFERENCES ticket_flights(ticket_no, flight_id)
+Access method: heap
+
+demo=#
+demo=# ALTER TABLE ONLY bookings.ticket_flights DROP constraint ticket_flights_flight_id_fkey;
+ALTER TABLE
+demo=# ALTER TABLE ONLY bookings.ticket_flights ADD constraint ticket_flights_flight_id_fkey FOREIGN KEY (flight_id) REFERENCES flights(flight_id);
+ERROR:  there is no unique constraint matching given keys for referenced table "flights"
+
+
+demo=# drop table flights_not_range;
+DROP TABLE
+demo=#
+
+
+ALTER TABLE ONLY bookings.flights
+    ADD CONSTRAINT flights_pkey PRIMARY KEY (flight_id);
+ERROR:  unique constraint on partitioned table must include all partitioning columns
+DETAIL:  PRIMARY KEY constraint on table "flights" lacks column "scheduled_departure" which is part of the partition key.
+
+ALTER TABLE ONLY bookings.flights
+    ADD CONSTRAINT flights_aircraft_code_fkey FOREIGN KEY (aircraft_code) REFERENCES bookings.aircrafts_data(aircraft_code);
+ERROR:  cannot use ONLY for foreign key on partitioned table "flights" referencing relation "aircrafts_data"
+
+ALTER TABLE ONLY bookings.flights
+    ADD CONSTRAINT flights_arrival_airport_fkey FOREIGN KEY (arrival_airport) REFERENCES bookings.airports_data(airport_code);
+ERROR:  cannot use ONLY for foreign key on partitioned table "flights" referencing relation "airports_data"
+
+ALTER TABLE ONLY bookings.flights
+    ADD CONSTRAINT flights_departure_airport_fkey FOREIGN KEY (departure_airport) REFERENCES bookings.airports_data(airport_code);
+ERROR:  cannot use ONLY for foreign key on partitioned table "flights" referencing relation "airports_data"
+demo=#
+demo=# ALTER TABLE bookings.flights
+    ADD CONSTRAINT flights_aircraft_code_fkey FOREIGN KEY (aircraft_code) REFERENCES bookings.aircrafts_data(aircraft_code);
+ALTER TABLE
+demo=# ALTER TABLE bookings.flights
+    ADD CONSTRAINT flights_arrival_airport_fkey FOREIGN KEY (arrival_airport) REFERENCES bookings.airports_data(airport_code);
+ALTER TABLE
+demo=# ALTER TABLE bookings.flights
+    ADD CONSTRAINT flights_departure_airport_fkey FOREIGN KEY (departure_airport) REFERENCES bookings.airports_data(airport_code);
+ALTER TABLE
+demo=#
+
+
+
+
+
+
+
+
+
