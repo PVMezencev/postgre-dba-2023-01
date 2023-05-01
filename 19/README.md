@@ -1,71 +1,20 @@
-1 ВАРИАНТ
+## Сбор и использование статистики.
 
-superman@pvmezentsev:~$ sudo -u postgres pg_createcluster 15 main
-Creating new PostgreSQL cluster 15/main ...
-/usr/lib/postgresql/15/bin/initdb -D /var/lib/postgresql/15/main --auth-local peer --auth-host scram-sha-256 --no-instructions
-The files belonging to this database system will be owned by user "postgres".
-This user must also own the server process.
+### Вариант 1
 
-The database cluster will be initialized with this locale configuration:
-  provider:    libc
-  LC_COLLATE:  en_US.UTF-8
-  LC_CTYPE:    en_US.UTF-8
-  LC_MESSAGES: en_US.UTF-8
-  LC_MONETARY: ru_RU.UTF-8
-  LC_NUMERIC:  ru_RU.UTF-8
-  LC_TIME:     ru_RU.UTF-8
-The default database encoding has accordingly been set to "UTF8".
-The default text search configuration will be set to "english".
+Использовалась ВМ на внешнем хостинге Debian 11, PostgreSQL 15.
 
-Data page checksums are disabled.
-
-fixing permissions on existing directory /var/lib/postgresql/15/main ... ok
-creating subdirectories ... ok
-selecting dynamic shared memory implementation ... posix
-selecting default max_connections ... 100
-selecting default shared_buffers ... 128MB
-selecting default time zone ... Asia/Yekaterinburg
-creating configuration files ... ok
-running bootstrap script ... ok
-performing post-bootstrap initialization ... ok
-syncing data to disk ... ok
-Warning: systemd does not know about the new cluster yet. Operations like "service postgresql start" will not handle it. To fix, run:
-  sudo systemctl daemon-reload
-Ver Cluster Port Status Owner    Data directory              Log file
-15  main    5432 down   postgres /var/lib/postgresql/15/main /var/log/postgresql/postgresql-15-main.log
-superman@pvmezentsev:~$ sudo systemctl daemon-reload
-superman@pvmezentsev:~$ sudo -u postgres pg_lsclusters
-Ver Cluster Port Status Owner    Data directory              Log file
-15  main    5432 down   postgres /var/lib/postgresql/15/main /var/log/postgresql/postgresql-15-main.log
-superman@pvmezentsev:~$ sudo -u postgres pg_ctlcluster 15 main start
-Warning: the cluster will not be running as a systemd service. Consider using systemctl:
-  sudo systemctl start postgresql@15-main
-superman@pvmezentsev:~$ sudo -u postgres pg_lsclusters
-Ver Cluster Port Status Owner    Data directory              Log file
-15  main    5432 online postgres /var/lib/postgresql/15/main /var/log/postgresql/postgresql-15-main.log
-superman@pvmezentsev:~$
-
-postgres@pvmezentsev:~$ psql
-psql (15.2 (Debian 15.2-1.pgdg110+1))
-Type "help" for help.
-
-postgres=# drop table if exists test;
-DROP TABLE
-
+1. Создадим тестовую таблицу и заполним её тестовыми данными.
+```bash
 postgres=# create table test as
 select generate_series as id
         , generate_series::text || (random() * 10)::text as col2
     , (array['Yes', 'No', 'Maybe'])[floor(random() * 3 + 1)] as is_okay
 from generate_series(1, 50000);
 SELECT 50000
-postgres=# explain
-select id from test where id = 49000;
-                      QUERY PLAN
--------------------------------------------------------
- Seq Scan on test  (cost=0.00..1007.00 rows=1 width=4)
-   Filter: (id = 49000)
-(2 rows)
-
+```
+Выясним, как работает выборка без индексов:
+```bash
 postgres=# explain
 select id from test where id = 1;
                       QUERY PLAN
@@ -73,9 +22,16 @@ select id from test where id = 1;
  Seq Scan on test  (cost=0.00..1007.00 rows=1 width=4)
    Filter: (id = 1)
 (2 rows)
+```
+Сканирование происходит по всем данным.
 
+2. Создадим индекс:
+```bash
 postgres=# create index idx_test_id on test(id);
-CREATE INDEX
+CREATE INDEX 
+```
+Выясним, как работает выборка c индексом:
+```bash
 postgres=# explain
 select id from test where id = 1;
                                  QUERY PLAN
@@ -83,19 +39,11 @@ select id from test where id = 1;
  Index Only Scan using idx_test_id on test  (cost=0.29..4.31 rows=1 width=4)
    Index Cond: (id = 1)
 (2 rows)
+```
+Видим, что при выборке используется индекс, значение cost уменьшилось.
 
-postgres=#
-
-postgres=# create table orders (
-    id int,
-    user_id int,
-    order_date date,
-    status text,
-    some_text text
-);
-CREATE TABLE
-postgres=#
-
+3. Для демонстрации работы полнотекстового индекса создадим другую тестовую таблицу и заполним её данными:
+```bash
 postgres=# insert into orders(id, user_id, order_date, status, some_text)
 select generate_series, (random() * 70), date'2019-01-01' + (random() * 300)::int as order_date
         , (array['returned', 'completed', 'placed', 'shipped'])[(random() * 4)::int]
@@ -105,8 +53,10 @@ select generate_series, (random() * 70), date'2019-01-01' + (random() * 300)::in
             )
 from generate_series(1, 500000);
 INSERT 0 500000
-postgres=#
+```
 
+Посмотрим, как работает выборка к этой таблице без индексов с использованием лексем:
+```bash
 postgres=# explain select some_text, to_tsvector(some_text) @@ to_tsquery('britains')
 from orders;
                                    QUERY PLAN
@@ -118,85 +68,25 @@ from orders;
    Functions: 2
    Options: Inlining false, Optimization false, Expressions true, Deforming true
 (6 rows)
+```
 
-postgres=#
-
-postgres=# CREATE INDEX search_index_some_text ON orders USING GIN (to_tsvector(some_text));
-ERROR:  functions in index expression must be marked IMMUTABLE
-postgres=# CREATE INDEX search_index_some_text ON orders USING GIN (to_tsvector('english', some_text));
-CREATE INDEX
-postgres=#
-
-postgres=# explain select some_text
-from orders
-where to_tsvector('english', some_text) @@ to_tsquery('britains')
-;
-                                                QUERY PLAN
-----------------------------------------------------------------------------------------------------------
- Gather  (cost=1773.18..37664.18 rows=83217 width=14)
-   Workers Planned: 2
-   ->  Parallel Bitmap Heap Scan on orders  (cost=773.18..28342.48 rows=34674 width=14)
-         Recheck Cond: (to_tsvector('english'::regconfig, some_text) @@ to_tsquery('britains'::text))
-         ->  Bitmap Index Scan on search_index_some_text  (cost=0.00..752.38 rows=83217 width=0)
-               Index Cond: (to_tsvector('english'::regconfig, some_text) @@ to_tsquery('britains'::text))
-(6 rows)
-
-
-postgres=#
-
-postgres=# drop table if exists test;
-DROP TABLE
-
-postgres=# create table test as
-select generate_series as id
-        , generate_series::text || (random() * 10)::text as col2
-    , (array['Yes', 'No', 'Maybe'])[floor(random() * 3 + 1)] as is_okay
-from generate_series(1, 50000);
-SELECT 50000
-
-postgres=# create index idx_test_id_100 on test(id) where id < 100;
-CREATE INDEX
-postgres=# explain
-select * from test where id < 50;
-                                QUERY PLAN
---------------------------------------------------------------------------
- Index Scan using idx_test_id on test  (cost=0.29..9.16 rows=50 width=31)
-   Index Cond: (id < 50)
-(2 rows)
-
-postgres=# explain
-select * from test where id > 150;
-                         QUERY PLAN
-------------------------------------------------------------
- Seq Scan on test  (cost=0.00..1007.00 rows=49846 width=31)
-   Filter: (id > 150)
-(2 rows)
-
-postgres=#
-
+Для использования полнотекстового индекса добавим столбец типа tsvector, в который запишем значения ф-ии to_tsvector:
+```bash
 postgres=# alter table orders add column some_text_lexeme tsvector;
 ALTER TABLE
 postgres=# update orders
 set some_text_lexeme = to_tsvector(some_text);
 UPDATE 500000
-postgres=#
+```
 
-postgres=# explain
-select some_text
-from orders
-where some_text_lexeme @@ to_tsquery('britains');
-                                  QUERY PLAN
-------------------------------------------------------------------------------
- Gather  (cost=1000.00..74019.80 rows=85333 width=14)
-   Workers Planned: 2
-   ->  Parallel Seq Scan on orders  (cost=0.00..64486.50 rows=35555 width=14)
-         Filter: (some_text_lexeme @@ to_tsquery('britains'::text))
-(4 rows)
-
-postgres=#
-
+На поле some_text_lexeme создадим USING GIN индекс:
+```bash
 postgres=# CREATE INDEX search_index_ord ON orders USING GIN (some_text_lexeme);
 CREATE INDEX
+```
+
+Посмотрим план запроса:
+```bash
 postgres=# explain
 select *
 from orders
@@ -210,76 +100,156 @@ where some_text_lexeme @@ to_tsquery('britains');
          ->  Bitmap Index Scan on search_index_ord  (cost=0.00..772.25 rows=85333 width=0)
                Index Cond: (some_text_lexeme @@ to_tsquery('britains'::text))
 (6 rows)
+```
+Оптимизатор запросов использует созданный индекс: `Bitmap Index Scan on search_index_ord  (cost=0.00..772.25 rows=85333 width=0)`
 
-postgres=#
+4. Для реализации индекса на часть таблицы вернемся к таблице test и создадим такой индекс:
+```bash
+postgres=# drop table if exists test;
+DROP TABLE
 
-postgres=#
-explain
-select * from test where id = 1 and is_okay = 'True';
-                                 QUERY PLAN
------------------------------------------------------------------------------
- Index Scan using idx_test_id_100 on test  (cost=0.14..8.16 rows=1 width=31)
-   Index Cond: (id = 1)
-   Filter: (is_okay = 'True'::text)
-(3 rows)
+postgres=# create table test as
+select generate_series as id
+        , generate_series::text || (random() * 10)::text as col2
+    , (array['Yes', 'No', 'Maybe'])[floor(random() * 3 + 1)] as is_okay
+from generate_series(1, 50000);
+SELECT 50000
 
-postgres=#
-explain
-select * from test where id = 1;
-                                 QUERY PLAN
------------------------------------------------------------------------------
- Index Scan using idx_test_id_100 on test  (cost=0.14..8.16 rows=1 width=31)
-   Index Cond: (id = 1)
+postgres=# create index idx_test_id_100 on test(id) where id < 100;
+CREATE INDEX
+```
+
+Посмотрим план запроса, который будет использовать такой индекс:
+```bash
+postgres=# explain                                                
+select * from test where id < 50;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Index Scan using idx_test_id_100 on test  (cost=0.14..13.04 rows=51 width=31)
+   Index Cond: (id < 50)
+(2 rows)
+```
+При таком условии используется индекс: `Scan using idx_test_id_100 on test  (cost=0.14..13.04 rows=51 width=31)`
+
+Посмотрим план запроса, который будет использовать такой индекс при несоответствующем условии:
+```bash
+postgres=# explain                                                
+select * from test where id > 500;
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Seq Scan on test  (cost=0.00..1008.00 rows=49480 width=31)
+   Filter: (id > 500)
+(2 rows)
+```
+Таблица сканируется полностью.
+
+Для индекса на поле с функцией создадим полнотекстовый индекс на поле some_text:
+```bash
+postgres=# CREATE INDEX search_index_some_text ON orders USING GIN (to_tsvector('english', some_text));
+CREATE INDEX
+```
+
+Посмотрим план запроса:
+```bash
+postgres=# explain select some_text
+from orders
+where to_tsvector('english', some_text) @@ to_tsquery('britains')
+;
+                                                QUERY PLAN                                                
+----------------------------------------------------------------------------------------------------------
+ Gather  (cost=1773.18..37664.18 rows=83217 width=14)
+   Workers Planned: 2
+   ->  Parallel Bitmap Heap Scan on orders  (cost=773.18..28342.48 rows=34674 width=14)
+         Recheck Cond: (to_tsvector('english'::regconfig, some_text) @@ to_tsquery('britains'::text))
+         ->  Bitmap Index Scan on search_index_some_text  (cost=0.00..752.38 rows=83217 width=0)
+               Index Cond: (to_tsvector('english'::regconfig, some_text) @@ to_tsquery('britains'::text))
+(6 rows)
+```
+Оптимизатор запросов использует созданный индекс: `Bitmap Index Scan on search_index_some_text  (cost=0.00..752.38 rows=83217 width=0)`
+
+5. Для реализации индекса на несколько полей вернемся к таблице test:
+```bash
+postgres=# drop table if exists test;
+DROP TABLE
+postgres=# create table test as
+select generate_series as id
+        , generate_series::text || (random() * 10)::text as col2
+    , (array['Yes', 'No', 'Maybe'])[floor(random() * 3 + 1)] as is_okay
+from generate_series(1, 50000);
+SELECT 50000
+```
+Посмотрим план запросов с фильтром по двум полям:
+```bash
+postgres=# explain
+select * from test where id = 1 and is_okay = 'Yes';
+                       QUERY PLAN                       
+--------------------------------------------------------
+ Seq Scan on test  (cost=0.00..1132.00 rows=1 width=31)
+   Filter: ((id = 1) AND (is_okay = 'Yes'::text))
 (2 rows)
 
-postgres=#
-explain
-select * from test where is_okay = 'True';
-                       QUERY PLAN
+postgres=# explain
+select * from test where id = 1;
+                       QUERY PLAN                       
 --------------------------------------------------------
  Seq Scan on test  (cost=0.00..1007.00 rows=1 width=31)
-   Filter: (is_okay = 'True'::text)
+   Filter: (id = 1)
 (2 rows)
 
-postgres=#
-
+postgres=# explain
+select * from test where is_okay = 'Yes';
+                       QUERY PLAN                       
+--------------------------------------------------------
+ Seq Scan on test  (cost=0.00..1007.00 rows=1 width=31)
+   Filter: (is_okay = 'Yes'::text)
+(2 rows)
+```
+Добавим индекс на два поля:
+```bash
 postgres=# create index idx_test_id_is_okay on test(id, is_okay);
 CREATE INDEX
-postgres=#
-explain
-select * from test where id = 1 and is_okay = 'True';
-                                   QUERY PLAN
+```
+Выясним, как используются индексы с разными условиями:
+```bash
+postgres=# explain
+select * from test where id = 1 and is_okay = 'Yes';
+                                   QUERY PLAN                                    
 ---------------------------------------------------------------------------------
- Index Scan using idx_test_id_is_okay on test  (cost=0.29..6.06 rows=1 width=31)
-   Index Cond: ((id = 1) AND (is_okay = 'True'::text))
+ Index Scan using idx_test_id_is_okay on test  (cost=0.29..8.31 rows=1 width=31)
+   Index Cond: ((id = 1) AND (is_okay = 'Yes'::text))
 (2 rows)
+```
+При отборе по двум полям оптимизатор использует созданный индекс: `Scan using idx_test_id_is_okay on test  (cost=0.29..8.31 rows=1 width=31)`
 
-postgres=#
-explain
+```bash
+postgres=# explain
 select * from test where id = 1;
-                                 QUERY PLAN
------------------------------------------------------------------------------
- Index Scan using idx_test_id_100 on test  (cost=0.14..8.16 rows=1 width=31)
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Index Scan using idx_test_id_is_okay on test  (cost=0.29..8.31 rows=1 width=31)
    Index Cond: (id = 1)
 (2 rows)
+```
+При отборе по первому полю из индекса оптимизатор использует созданный индекс: `Scan using idx_test_id_is_okay on test  (cost=0.29..8.31 rows=1 width=31)`
 
-postgres=#
-explain
-select * from test where is_okay = 'True';
-                       QUERY PLAN
---------------------------------------------------------
- Seq Scan on test  (cost=0.00..1007.00 rows=1 width=31)
-   Filter: (is_okay = 'True'::text)
+```bash
+postgres=# explain
+select * from test where is_okay = 'Yes';
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Seq Scan on test  (cost=0.00..1007.00 rows=16633 width=31)
+   Filter: (is_okay = 'Yes'::text)
 (2 rows)
+```
+При отборе по второму полю из индекса оптимизатор НЕ использует созданный индекс, сканирует всю таблицу (проверено на PostgerSQL 15, 14), хотя на лекции было сказано,
+что с версии 14 при условии отбора по второму полю индекса должен использоваться индекс.
 
-Поиск по второму полю индекса не использует составной индекс (проверено на 14 и 15 версии пострге)
+Пункты 5 и 6 выполнены в процессе выполнения задания.
 
-postgres=#
+### Вариант 2
 
-
-2 ВАРИАНТ
-
-
+1. Создадим таблицы для работы с соединениями bus - маршруты, model_bus - модели автобусов:
+```bash
 postgres=# create table bus (id serial,route text,id_model int);
 create table model_bus (id serial,name text);;
 insert into bus values (1,'Москва-Болшево',1),(2,'Москва-Пушкино',1),(3,'Москва-Ярославль',2),(4,'Москва-Кострома',2),(5,'Москва-Волгорад',3),
@@ -289,10 +259,10 @@ CREATE TABLE
 CREATE TABLE
 INSERT 0 8
 INSERT 0 7
-postgres=# analyse bus;
-analyse model_bus;
-ANALYZE
-ANALYZE
+```
+
+Выполним запрос с прямым соединением двух таблиц по идентификатору модели автобуса:
+```bash
 postgres=# explain
 select *
 from bus b
@@ -311,7 +281,7 @@ postgres=# select *
 from bus b
 join model_bus mb
     on b.id_model=mb.id;
- id |      route       | id_model | id | name
+ id |      route       | id_model | id | name 
 ----+------------------+----------+----+------
   1 | Москва-Болшево   |        1 |  1 | ПАЗ
   2 | Москва-Пушкино   |        1 |  1 | ПАЗ
@@ -319,34 +289,10 @@ join model_bus mb
   4 | Москва-Кострома  |        2 |  2 | ЛИАЗ
   5 | Москва-Волгорад  |        3 |  3 | MAN
 (5 rows)
+```
 
-postgres=# select *
-from bus b,model_bus mb
-where b.id_model=mb.id;
- id |      route       | id_model | id | name
-----+------------------+----------+----+------
-  1 | Москва-Болшево   |        1 |  1 | ПАЗ
-  2 | Москва-Пушкино   |        1 |  1 | ПАЗ
-  3 | Москва-Ярославль |        2 |  2 | ЛИАЗ
-  4 | Москва-Кострома  |        2 |  2 | ЛИАЗ
-  5 | Москва-Волгорад  |        3 |  3 | MAN
-(5 rows)
-
-postgres=# explain
-select *
-from bus b,model_bus mb
-where b.id_model=mb.id;
-                               QUERY PLAN
--------------------------------------------------------------------------
- Hash Join  (cost=1.16..2.32 rows=5 width=49)
-   Hash Cond: (b.id_model = mb.id)
-   ->  Seq Scan on bus b  (cost=0.00..1.08 rows=8 width=37)
-   ->  Hash  (cost=1.07..1.07 rows=7 width=12)
-         ->  Seq Scan on model_bus mb  (cost=0.00..1.07 rows=7 width=12)
-(5 rows)
-
-postgres=#
-
+2. Выполним запрос сначала с левосторонним, а затем с правосторонним соединением двух таблиц по идентификатору модели автобуса:
+```bash
 postgres=# select *
 from bus b
 left join model_bus mb
@@ -379,7 +325,10 @@ right join model_bus mb
     |                  |          |  4 | МАЗ
     |                  |          |  7 | Икарус
 (9 rows)
+```
 
+Такие запросы полезны, например, для выявления маршрутов, которым не назначены автобусы:
+```bash
 postgres=# select *
 from bus b
 left join model_bus mb on b.id_model=mb.id
@@ -390,7 +339,10 @@ where mb.id is null;
   7 | Москва-Саратов |          |    |
   8 | Москва-Воронеж |          |    |
 (3 rows)
+```
 
+Или, например, для выявления автобусов, которые без маршрутов:
+```bash
 postgres=# select *
 from bus b
 right join model_bus mb on b.id_model=mb.id
@@ -403,47 +355,10 @@ where b.id
     |       |          |  4 | МАЗ
     |       |          |  7 | Икарус
 (4 rows)
+```
 
-postgres=#
-
-
-postgres=# select *
-from bus b
-full join model_bus mb on b.id_model=mb.id;
- id |      route       | id_model | id |  name
-----+------------------+----------+----+--------
-  1 | Москва-Болшево   |        1 |  1 | ПАЗ
-  2 | Москва-Пушкино   |        1 |  1 | ПАЗ
-  3 | Москва-Ярославль |        2 |  2 | ЛИАЗ
-  4 | Москва-Кострома  |        2 |  2 | ЛИАЗ
-  5 | Москва-Волгорад  |        3 |  3 | MAN
-  6 | Москва-Иваново   |          |    |
-  7 | Москва-Саратов   |          |    |
-  8 | Москва-Воронеж   |          |    |
-    |                  |          |  5 | НЕФАЗ
-    |                  |          |  6 | ЗиС
-    |                  |          |  4 | МАЗ
-    |                  |          |  7 | Икарус
-(12 rows)
-
-postgres=# select *
-from bus b
-full join model_bus mb on b.id_model=mb.id
-where b.id is null or mb.id is null;
- id |     route      | id_model | id |  name
-----+----------------+----------+----+--------
-  6 | Москва-Иваново |          |    |
-  7 | Москва-Саратов |          |    |
-  8 | Москва-Воронеж |          |    |
-    |                |          |  5 | НЕФАЗ
-    |                |          |  6 | ЗиС
-    |                |          |  4 | МАЗ
-    |                |          |  7 | Икарус
-(7 rows)
-
-postgres=#
-
-
+3. Кросс соединение двух таблиц:
+```bash
 postgres=# select *
 from bus b
 cross join model_bus mb;
@@ -507,25 +422,56 @@ cross join model_bus mb;
   8 | Москва-Воронеж   |          |  6 | ЗиС
   8 | Москва-Воронеж   |          |  7 | Икарус
 (56 rows)
+```
 
+4. Полное соединение двух таблиц:
+```bash
+postgres=# select *
+from bus b
+full join model_bus mb on b.id_model=mb.id;
+ id |      route       | id_model | id |  name
+----+------------------+----------+----+--------
+  1 | Москва-Болшево   |        1 |  1 | ПАЗ
+  2 | Москва-Пушкино   |        1 |  1 | ПАЗ
+  3 | Москва-Ярославль |        2 |  2 | ЛИАЗ
+  4 | Москва-Кострома  |        2 |  2 | ЛИАЗ
+  5 | Москва-Волгорад  |        3 |  3 | MAN
+  6 | Москва-Иваново   |          |    |
+  7 | Москва-Саратов   |          |    |
+  8 | Москва-Воронеж   |          |    |
+    |                  |          |  5 | НЕФАЗ
+    |                  |          |  6 | ЗиС
+    |                  |          |  4 | МАЗ
+    |                  |          |  7 | Икарус
+(12 rows)
 
+postgres=# select *
+from bus b
+full join model_bus mb on b.id_model=mb.id
+where b.id is null or mb.id is null;
+ id |     route      | id_model | id |  name
+----+----------------+----------+----+--------
+  6 | Москва-Иваново |          |    |
+  7 | Москва-Саратов |          |    |
+  8 | Москва-Воронеж |          |    |
+    |                |          |  5 | НЕФАЗ
+    |                |          |  6 | ЗиС
+    |                |          |  4 | МАЗ
+    |                |          |  7 | Икарус
+(7 rows)
+```
 
+5. Для более-менее осмысленного запроса, в котором будем использовать разные типы соединений, создадим третью таблицу - связка маршрутов и дней недели - 
+своего рода расписание:
+```bash
 postgres=# create table schedule (id_bus int, day int);
 CREATE TABLE
-postgres=# select * from bus where id_model is not null;
- id |      route       | id_model
-----+------------------+----------
-  1 | Москва-Болшево   |        1
-  2 | Москва-Пушкино   |        1
-  3 | Москва-Ярославль |        2
-  4 | Москва-Кострома  |        2
-  5 | Москва-Волгорад  |        3
-(5 rows)
-
 postgres=# insert into schedule values (1,1),(1,5),(2,2),(3,5),(4,6),(4,0),(5,0);
 INSERT 0 7
-postgres=#
+```
 
+Теперь выберем все маршруты, которые идут из Москвы:
+```bash
 postgres=# select b.route, (select case
 when sched.day=1 then 'ПН'
 when sched.day=2 then 'ВТ'
@@ -550,9 +496,11 @@ where b.route like 'Москва%';
  Москва-Кострома  | ВС       | ЛИАЗ
  Москва-Волгорад  | ВС       | MAN
 (7 rows)
+```
+Таким образом, мы узнали, по каким дням и на каких моделях транспорта выполняются рейсы из Москвы.
 
-postgres=#
-
+Теперь выберем все маршруты, которые идут в Кострому:
+```bash
 postgres=# select b.route, (select case
 when sched.day=1 then 'ПН'
 when sched.day=2 then 'ВТ'
@@ -572,23 +520,11 @@ where b.route like '%Кострома';
  Москва-Кострома | СБ       | ЛИАЗ
  Москва-Кострома | ВС       | ЛИАЗ
 (2 rows)
+```
 
-postgres=#
-
-postgres=# select b.route, mb.name
-from bus b
-join schedule sched
-    on b.id=sched.id_bus
-left join model_bus mb on b.id_model=mb.id
-where sched.day = extract(dow from current_date::date);
-      route      | name
------------------+------
- Москва-Кострома | ЛИАЗ
- Москва-Волгорад | MAN
-(2 rows)
-
-postgres=#
-
+6. Выполнен в процессе выполнения задания.
+7. Структуры таблиц:
+```bash
 postgres=# \d bus;
                              Table "public.bus"
   Column  |  Type   | Collation | Nullable |             Default
@@ -610,5 +546,4 @@ postgres=# \d schedule;
 --------+---------+-----------+----------+---------
  id_bus | integer |           |          |
  day    | integer |           |          |
-
-postgres=#
+```
