@@ -1,0 +1,1179 @@
+postgres=# DROP SCHEMA IF EXISTS pract_functions CASCADE;
+CREATE SCHEMA pract_functions;
+NOTICE:  schema "pract_functions" does not exist, skipping
+DROP SCHEMA
+CREATE SCHEMA
+postgres=# SET search_path = pract_functions, publ;
+SET
+postgres=# -- товары:
+CREATE TABLE goods
+(
+    goods_id    integer PRIMARY KEY,
+    good_name   varchar(63) NOT NULL,
+    good_price  numeric(12, 2) NOT NULL CHECK (good_price > 0.0)
+);
+INSERT INTO goods (goods_id, good_name, good_price)
+VALUES  (1, 'Спички хозайственные', .50),
+                (2, 'Автомобиль Ferrari FXX K', 185000000.01);
+
+-- Продажи
+CREATE TABLE sales
+(
+    sales_id    integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    good_id     integer REFERENCES goods (goods_id),
+    sales_time  timestamp with time zone DEFAULT now(),
+    sales_qty   integer CHECK (sales_qty > 0)
+);
+
+INSERT INTO sales (good_id, sales_qty) VALUES (1, 10), (1, 1), (1, 120), (2, 1);
+
+-- отчет:
+SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+
+-- с увеличением объёма данных отчет стал создаваться медленно
+-- Принято решение денормализовать БД, создать таблицу
+CREATE TABLE good_sum_mart
+(
+        good_name   varchar(63) NOT NULL,
+        sum_sale        numeric(16, 2)NOT NULL
+);
+
+-- Создать триггер (на таблице sales) для поддержки.
+-- Подсказка: не забыть, что кроме INSERT есть еще UPDATE и DELETE
+
+-- Чем такая схема (витрина+триггер) предпочтительнее отчета, создаваемого "по требованию" (кроме производительности)?
+-- Подсказка: В реальной жизни возможны изменения цен.
+CREATE TABLE
+INSERT 0 2
+CREATE TABLE
+INSERT 0 4
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+CREATE TABLE
+postgres=# select * from goods;
+ goods_id |        good_name         |  good_price
+----------+--------------------------+--------------
+        1 | Спички хозайственные     |         0.50
+        2 | Автомобиль Ferrari FXX K | 185000000.01
+(2 rows)
+
+postgres=# select search_path;
+ERROR:  column "search_path" does not exist
+LINE 1: select search_path;
+               ^
+postgres=# select search_path();
+ERROR:  function search_path() does not exist
+LINE 1: select search_path();
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+postgres=# CREATE INDEX good_name_goods ON goods USING btree (good_name);
+CREATE INDEX
+postgres=# ALTER TABLE good_sum_mart ADD CONSTRAINT good_sum_mart_good_name_fkey FOREIGN KEY (good_name) REFERENCES goods(good_name) ON DELETE RESTRICT ON UPDATE CASCADE;
+ERROR:  there is no unique constraint matching given keys for referenced table "goods"
+postgres=# ALTER TABLE ONLY good_sum_mart ADD CONSTRAINT good_sum_mart_name_goods UNIQUE (good_name);
+ALTER TABLE
+postgres=# ALTER TABLE good_sum_mart ADD CONSTRAINT good_sum_mart_good_name_fkey FOREIGN KEY (good_name) REFERENCES goods(good_name) ON DELETE RESTRICT ON UPDATE CASCADE;
+ERROR:  there is no unique constraint matching given keys for referenced table "goods"
+postgres=#
+DROP SCHEMA IF EXISTS pract_functions CASCADE;
+CREATE SCHEMA pract_functions;
+
+SET search_path = pract_functions, publ;
+NOTICE:  drop cascades to 3 other objects
+DETAIL:  drop cascades to table goods
+drop cascades to table sales
+drop cascades to table good_sum_mart
+DROP SCHEMA
+CREATE SCHEMA
+SET
+postgres=# -- товары:
+DROP TABLE IF EXISTS goods CASCADE;
+CREATE TABLE goods
+(
+    goods_id    integer PRIMARY KEY,
+    good_name   varchar(63) NOT NULL,
+    good_price  numeric(12, 2) NOT NULL CHECK (good_price > 0.0)
+);
+NOTICE:  table "goods" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+postgres=# INSERT INTO goods (goods_id, good_name, good_price)
+VALUES  (1, 'Спички хозайственные', .50),
+                (2, 'Автомобиль Ferrari FXX K', 185000000.01);
+INSERT 0 2
+postgres=# select search_path();
+ERROR:  function search_path() does not exist
+LINE 1: select search_path();
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+postgres=# select * from goods;
+ goods_id |        good_name         |  good_price
+----------+--------------------------+--------------
+        1 | Спички хозайственные     |         0.50
+        2 | Автомобиль Ferrari FXX K | 185000000.01
+(2 rows)
+
+postgres=# -- Продажи
+DROP TABLE IF EXISTS sales CASCADE;
+CREATE TABLE sales
+(
+    sales_id    integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    good_id     integer REFERENCES goods (goods_id),
+    sales_time  timestamp with time zone DEFAULT now(),
+    sales_qty   integer CHECK (sales_qty > 0)
+);
+
+INSERT INTO sales (good_id, sales_qty) VALUES (1, 10), (1, 1), (1, 120), (2, 1);
+NOTICE:  table "sales" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+INSERT 0 4
+postgres=# -- отчет:
+SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# DROP TABLE IF EXISTS good_sum_mart CASCADE;
+CREATE TABLE good_sum_mart
+(
+        good_name   varchar(63) NOT NULL,
+        sum_sale        numeric(16, 2)NOT NULL
+);
+NOTICE:  table "good_sum_mart" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+postgres=# INSERT INTO good_sum_mart
+SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+INSERT 0 2
+postgres=# -- Триггерная функция для новой продажи.
+CREATE OR REPLACE FUNCTION new_sale()
+    RETURNS trigger
+AS
+$N_SALE$
+BEGIN
+    IF EXISTS (
+        SELECT GSM.good_name
+        FROM good_sum_mart GSM
+            JOIN goods G
+            ON NEW.good_id = G.goods_id
+        WHERE GSM.good_name = G.good_name
+        )
+    THEN
+        UPDATE good_sum_mart GSM
+        SET sum_sale = GSM.sum_sale + sum(G.good_price * NEW.sales_qty)
+        FROM sales S
+          INNER JOIN goods G ON G.goods_id = NEW.good_id
+        WHERE GSM.good_name = G.good_name;
+    ELSE
+        INSERT INTO good_sum_mart
+        SELECT G.good_name, (G.good_price * NEW.sales_qty) sum_sale
+        FROM goods G
+        WHERE G.goods_id = NEW.good_id;
+    END IF;
+END;
+$N_SALE$;
+ERROR:  no language specified
+postgres=# CREATE OR REPLACE FUNCTION new_sale()
+    RETURNS trigger
+AS
+$N_SALE$
+BEGIN
+    IF EXISTS (
+        SELECT GSM.good_name
+        FROM good_sum_mart GSM
+            JOIN goods G
+            ON NEW.good_id = G.goods_id
+        WHERE GSM.good_name = G.good_name
+        )
+    THEN
+        UPDATE good_sum_mart GSM
+        SET sum_sale = GSM.sum_sale + sum(G.good_price * NEW.sales_qty)
+        FROM sales S
+          INNER JOIN goods G ON G.goods_id = NEW.good_id
+        WHERE GSM.good_name = G.good_name;
+    ELSE
+        INSERT INTO good_sum_mart
+        SELECT G.good_name, (G.good_price * NEW.sales_qty) sum_sale
+        FROM goods G
+        WHERE G.goods_id = NEW.good_id;
+    END IF;
+END;
+$N_SALE$
+    LANGUAGE plpgsql;
+CREATE FUNCTION
+postgres=# -- Создать триггер на новую продажу.
+DROP TRIGGER IF EXISTS tr_new_sale ON sales;
+
+CREATE TRIGGER tr_new_sale
+    AFTER INSERT
+    ON sales
+EXECUTE PROCEDURE new_sale();
+NOTICE:  trigger "tr_new_sale" for relation "sales" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# INSERT INTO sales (good_id, sales_qty)
+VALUES (1, 5);
+ERROR:  control reached end of trigger procedure without RETURN
+CONTEXT:  PL/pgSQL function new_sale()
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# DROP TRIGGER IF EXISTS tr_new_sale ON sales;
+DROP TRIGGER
+postgres=# CREATE OR REPLACE FUNCTION new_sale()
+    RETURNS trigger
+AS
+$N_SALE$
+BEGIN
+    IF EXISTS (
+        SELECT GSM.good_name
+        FROM good_sum_mart GSM
+            JOIN goods G
+            ON NEW.good_id = G.goods_id
+        WHERE GSM.good_name = G.good_name
+        )
+    THEN
+        UPDATE good_sum_mart GSM
+        SET sum_sale = GSM.sum_sale + sum(G.good_price * NEW.sales_qty)
+        FROM sales S
+          INNER JOIN goods G ON G.goods_id = NEW.good_id
+        WHERE GSM.good_name = G.good_name;
+    ELSE
+        INSERT INTO good_sum_mart
+        SELECT G.good_name, (G.good_price * NEW.sales_qty) sum_sale
+        FROM goods G
+        WHERE G.goods_id = NEW.good_id;
+    END IF;
+    RETURN NEW;
+END;
+$N_SALE$
+    LANGUAGE plpgsql;
+CREATE FUNCTION
+postgres=# -- Создать триггер на новую продажу.
+DROP TRIGGER IF EXISTS tr_new_sale ON sales;
+
+CREATE TRIGGER tr_new_sale
+    AFTER INSERT
+    ON sales
+EXECUTE PROCEDURE new_sale();
+NOTICE:  trigger "tr_new_sale" for relation "sales" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+postgres=# -- Продажи
+DROP TABLE IF EXISTS sales CASCADE;
+CREATE TABLE sales
+(
+    sales_id   integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    good_id    integer REFERENCES goods (goods_id),
+    sales_time timestamp with time zone DEFAULT now(),
+    sales_qty  integer CHECK (sales_qty > 0)
+);
+
+INSERT INTO sales (good_id, sales_qty)
+VALUES (1, 10),
+       (1, 1),
+       (1, 120),
+       (2, 1);
+
+-- отчет:
+SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+
+-- с увеличением объёма данных отчет стал создаваться медленно
+-- Принято решение денормализовать БД, создать таблицу
+DROP TABLE IF EXISTS good_sum_mart CASCADE;
+CREATE TABLE good_sum_mart
+(
+    good_name varchar(63)    NOT NULL,
+    sum_sale  numeric(16, 2) NOT NULL
+);
+
+INSERT INTO good_sum_mart
+SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+DROP TABLE
+CREATE TABLE
+INSERT 0 4
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+DROP TABLE
+CREATE TABLE
+INSERT 0 2
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# INSERT INTO sales (good_id, sales_qty)
+VALUES (1, 5);
+INSERT 0 1
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# -- отчет:
+SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.00
+(2 rows)
+
+postgres=#         SELECT GSM.good_name
+        FROM good_sum_mart GSM
+            JOIN goods G
+            ON 1 = G.goods_id
+        WHERE GSM.good_name = G.good_name;
+      good_name
+----------------------
+ Спички хозайственные
+(1 row)
+
+postgres=# SELECT IF EXISTS(        SELECT GSM.good_name
+        FROM good_sum_mart GSM
+            JOIN goods G
+            ON 1 = G.goods_id
+        WHERE GSM.good_name = G.good_name)
+postgres-# ;
+ERROR:  syntax error at or near "("
+LINE 1: SELECT IF EXISTS(        SELECT GSM.good_name
+                        ^
+postgres=# SELECT IF EXISTS(        SELECT GSM.good_name
+        FROM good_sum_mart GSM
+            JOIN goods G
+            ON 1 = G.goods_id
+        WHERE GSM.good_name = G.good_name)
+THEN 1;
+ERROR:  syntax error at or near "("
+LINE 1: SELECT IF EXISTS(        SELECT GSM.good_name
+                        ^
+postgres=# SELECT IF EXISTS (        SELECT GSM.good_name
+        FROM good_sum_mart GSM
+            JOIN goods G
+            ON 1 = G.goods_id
+        WHERE GSM.good_name = G.good_name)
+THEN 1;
+ERROR:  syntax error at or near "("
+LINE 1: SELECT IF EXISTS (        SELECT GSM.good_name
+                         ^
+postgres=# UPDATE good_sum_mart GSM
+SET sum_sale = GSM.sum_sale + sum(G.good_price * 5)
+FROM sales S
+         INNER JOIN goods G ON G.goods_id = 1
+WHERE GSM.good_name = G.good_name;
+ERROR:  aggregate functions are not allowed in UPDATE
+LINE 2: SET sum_sale = GSM.sum_sale + sum(G.good_price * 5)
+                                      ^
+postgres=# UPDATE good_sum_mart GSM
+SET sum_sale = GSM.sum_sale + (G.good_price * 5)
+FROM sales S
+         INNER JOIN goods G ON G.goods_id = 1
+WHERE GSM.good_name = G.good_name;
+UPDATE 1
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.00
+(2 rows)
+
+postgres=# DROP TABLE IF EXISTS sales CASCADE;
+CREATE TABLE sales
+(
+    sales_id   integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    good_id    integer REFERENCES goods (goods_id),
+    sales_time timestamp with time zone DEFAULT now(),
+    sales_qty  integer CHECK (sales_qty > 0)
+);
+
+INSERT INTO sales (good_id, sales_qty)
+VALUES (1, 10),
+       (1, 1),
+       (1, 120),
+       (2, 1);
+
+-- отчет:
+SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+
+-- с увеличением объёма данных отчет стал создаваться медленно
+-- Принято решение денормализовать БД, создать таблицу
+DROP TABLE IF EXISTS good_sum_mart CASCADE;
+CREATE TABLE good_sum_mart
+(
+    good_name varchar(63)    NOT NULL,
+    sum_sale  numeric(16, 2) NOT NULL
+);
+
+INSERT INTO good_sum_mart
+SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+
+-- Создать триггер (на таблице sales) для поддержки.
+-- Подсказка: не забыть, что кроме INSERT есть еще UPDATE и DELETE
+
+-- Триггерная функция для новой продажи.
+CREATE OR REPLACE FUNCTION new_sale()
+    RETURNS trigger
+AS
+$N_SALE$
+BEGIN
+    IF EXISTS (
+        SELECT GSM.good_name
+        FROM good_sum_mart GSM
+            JOIN goods G
+            ON NEW.good_id = G.goods_id
+        WHERE GSM.good_name = G.good_name
+        )
+    THEN
+        UPDATE good_sum_mart GSM
+        SET sum_sale = GSM.sum_sale + (G.good_price * NEW.sales_qty)
+        FROM sales S
+          INNER JOIN goods G ON G.goods_id = NEW.good_id
+EXECUTE PROCEDURE new_sale();_sale ON sales;NEW.sales_qty) sum_sale
+DROP TABLE
+CREATE TABLE
+INSERT 0 4
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+DROP TABLE
+CREATE TABLE
+INSERT 0 2
+CREATE FUNCTION
+NOTICE:  trigger "tr_new_sale" for relation "sales" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+postgres=# DROP TABLE IF EXISTS sales CASCADE;
+CREATE TABLSELECT * FROM good_sum_mart;
+           SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# INSERT INTO sales (good_id, sales_qty)
+VALUES (1, 5);
+INSERT 0 1
+postgres=# SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.00
+(2 rows)
+
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# SELECT EXISTS (SELECT GSM.good_name
+FROM good_sum_mart GSM
+         JOIN goods G
+              ON 1 = G.goods_id
+WHERE GSM.good_name = G.good_name)
+postgres-# ;
+ exists
+--------
+ t
+(1 row)
+
+postgres=# SELECT EXISTS (SELECT GSM.good_name
+FROM good_sum_mart GSM
+         JOIN goods G
+              ON 1 = G.goods_id
+WHERE GSM.good_name = G.good_name)
+;
+ exists
+--------
+ t
+(1 row)
+
+postgres=# SELECT NOT EXISTS (SELECT GSM.good_name
+FROM good_sum_mart GSM
+         JOIN goods G
+              ON 1 = G.goods_id
+WHERE GSM.good_name = G.good_name)
+;
+ ?column?
+----------
+ f
+(1 row)
+
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# UPDATE good_sum_mart GSM
+SET sum_sale = sum_sale + (G.good_price * 5)
+FROM sales S
+         INNER JOIN goods G ON G.goods_id = 1
+WHERE GSM.good_name = G.good_name;
+UPDATE 1
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.00
+(2 rows)
+
+postgres=# -- Продажи
+DROP TABLE IF EXISTS sales CASCADE;
+CREATE TABLE sales
+(
+    sales_id   integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    good_id    integer REFERENCES goods (goods_id),
+    sales_time timestamp with time zone DEFAULT now(),
+    sales_qty  integer CHECK (sales_qty > 0)
+);
+
+INSERT INTO sales (good_id, sales_qty)
+VALUES (1, 10),
+       (1, 1),
+       (1, 120),
+       (2, 1);
+
+-- отчет:
+SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+
+-- с увеличением объёма данных отчет стал создаваться медленно
+-- Принято решение денормализовать БД, создать таблицу
+DROP TABLE IF EXISTS good_sum_mart CASCADE;
+CREATE TABLE good_sum_mart
+(
+    good_name varchar(63)    NOT NULL,
+    sum_sale  numeric(16, 2) NOT NULL
+);
+
+INSERT INTO good_sum_mart
+SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+
+-- Создать триггер (на таблице sales) для поддержки.
+-- Подсказка: не забыть, что кроме INSERT есть еще UPDATE и DELETE
+
+-- Триггерная функция для новой продажи.
+CREATE OR REPLACE FUNCTION new_sale()
+    RETURNS trigger
+AS
+$N_SALE$
+BEGIN
+    IF EXISTS (
+        SELECT GSM.good_name
+        FROM good_sum_mart GSM
+            INNER JOIN goods G
+            ON NEW.good_id = G.goods_id
+        WHERE GSM.good_name = G.good_name
+        )
+    THEN
+        UPDATE good_sum_mart GSM
+        SET sum_sale = sum_sale + (G.good_price * NEW.sales_qty)
+        FROM sales S
+EXECUTE PROCEDURE new_sale();_sale ON sales;NEW.sales_qty) sum_sale
+DROP TABLE
+CREATE TABLE
+INSERT 0 4
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+DROP TABLE
+CREATE TABLE
+INSERT 0 2
+CREATE FUNCTION
+NOTICE:  trigger "tr_new_sale" for relation "sales" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+postgres=# -- Продажи
+DROP TABLE SELECT * FROM good_sum_mart;
+
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# -- Продажи
+DROP TABLE SELECT * FROM good_sum_mart;
+           SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# INSERT INTO sales (good_id, sales_qty)
+VALUES (1, 5);
+INSERT 0 1
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.00
+(2 rows)
+
+postgres=# -- Продажи
+DROP TABLE IF EXISTS sales CASCADE;
+CREATE TABLE sales
+(
+    sales_id   integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    good_id    integer REFERENCES goods (goods_id),
+    sales_time timestamp with time zone DEFAULT now(),
+    sales_qty  integer CHECK (sales_qty > 0)
+);
+
+INSERT INTO sales (good_id, sales_qty)
+VALUES (1, 10),
+       (1, 1),
+       (1, 120),
+       (2, 1);
+
+-- отчет:
+SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+
+-- с увеличением объёма данных отчет стал создаваться медленно
+-- Принято решение денормализовать БД, создать таблицу
+DROP TABLE IF EXISTS good_sum_mart CASCADE;
+CREATE TABLE good_sum_mart
+(
+    good_name varchar(63)    NOT NULL,
+    sum_sale  numeric(16, 2) NOT NULL
+);
+
+INSERT INTO good_sum_mart
+SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+
+-- Создать триггер (на таблице sales) для поддержки.
+-- Подсказка: не забыть, что кроме INSERT есть еще UPDATE и DELETE
+
+-- Триггерная функция для новой продажи.
+CREATE OR REPLACE FUNCTION new_sale()
+    RETURNS trigger
+AS
+$N_SALE$
+BEGIN
+    IF EXISTS (
+        SELECT GSM.good_name
+        FROM good_sum_mart GSM
+            INNER JOIN goods G
+            ON NEW.good_id = G.goods_id
+        WHERE GSM.good_name = G.good_name
+        )
+    THEN
+        UPDATE good_sum_mart GSM
+        SET sum_sale = sum_sale + (G.good_price * NEW.sales_qty)
+        FROM sales S
+EXECUTE PROCEDURE new_sale();_sale ON sales;NEW.sales_qty) sum_sale
+DROP TABLE
+CREATE TABLE
+INSERT 0 4
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+DROP TABLE
+CREATE TABLE
+INSERT 0 2
+CREATE FUNCTION
+NOTICE:  trigger "tr_new_sale" for relation "sales" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+postgres=#
+DROP FUNCTION IF EXISTS new_sale CASCADE;
+CREATE OR REPLACE FUNCTION new_sale()
+    RETURNS trigger
+AS
+$N_SALE$
+BEGIN
+    IF EXISTS (
+        SELECT GSM.good_name
+        FROM good_sum_mart GSM
+            INNER JOIN goods G
+            ON NEW.good_id = G.goods_id
+        WHERE GSM.good_name = G.good_name
+        )
+    THEN
+        UPDATE good_sum_mart GSM
+        SET sum_sale = sum_sale + (G.good_price * NEW.sales_qty)
+        FROM sales S
+          INNER JOIN goods G ON G.goods_id = NEW.good_id
+        WHERE GSM.good_name = G.good_name;
+    ELSE
+        INSERT INTO good_sum_mart
+        SELECT G.good_name, (G.good_price * NEW.sales_qty) sum_sale
+        FROM goods G
+        WHERE G.goods_id = NEW.good_id;
+    END IF;
+    RETURN NEW;
+END;
+$N_SALE$
+    LANGUAGE plpgsql;
+
+-- Создать триггер на новую продажу.
+DROP TRIGGER IF EXISTS tr_new_sale ON sales;
+
+CREATE TRIGGER tr_new_sale
+    AFTER INSERT
+    ON sales
+FOR EACH ROW
+EXECUTE PROCEDURE new_sale();
+NOTICE:  drop cascades to trigger tr_new_sale on table sales
+DROP FUNCTION
+CREATE FUNCTION
+NOTICE:  trigger "tr_new_sale" for relation "sales" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        65.50
+(2 rows)
+
+postgres=# INSERT INTO sales (good_id, sales_qty)
+VALUES (1, 5);
+INSERT 0 1
+postgres=# SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.00
+(2 rows)
+
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.00
+(2 rows)
+
+postgres=# INSERT INTO goods (goods_id, good_name, good_price)
+VALUES (3, 'Молоко', 12.50);
+INSERT 0 1
+postgres=# INSERT INTO sales (good_id, sales_qty)
+VALUES
+    (1, 1), (3, 1), (3, 2);
+INSERT 0 3
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.50
+ Молоко                   |        37.50
+(3 rows)
+
+postgres=# SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.50
+ Молоко                   |        37.50
+(3 rows)
+
+postgres=# -- Триггерная функция для удаления продажи (возврат).
+DROP FUNCTION IF EXISTS refund_sale CASCADE;
+CREATE OR REPLACE FUNCTION refund_sale()
+    RETURNS trigger
+AS
+$R_SALE$
+BEGIN
+    UPDATE good_sum_mart GSM
+    SET sum_sale = sum_sale - (G.good_price * OLD.sales_qty)
+    FROM sales S
+             INNER JOIN goods G ON G.goods_id = OLD.good_id
+    WHERE GSM.good_name = G.good_name;
+    RETURN OLD;
+END;
+$R_SALE$
+    LANGUAGE plpgsql;
+
+-- Создать триггер на новую продажу.
+DROP TRIGGER IF EXISTS tr_refund_sale ON sales;
+
+CREATE TRIGGER refund_sale
+    BEFORE DELETE
+    ON sales
+    FOR EACH ROW
+EXECUTE PROCEDURE refund_sale();
+NOTICE:  function refund_sale() does not exist, skipping
+DROP FUNCTION
+CREATE FUNCTION
+NOTICE:  trigger "tr_refund_sale" for relation "sales" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+postgres=# SELECT * FROM sales;
+ sales_id | good_id |          sales_time           | sales_qty
+----------+---------+-------------------------------+-----------
+        1 |       1 | 2023-05-06 13:35:44.291206+05 |        10
+        2 |       1 | 2023-05-06 13:35:44.291206+05 |         1
+        3 |       1 | 2023-05-06 13:35:44.291206+05 |       120
+        4 |       2 | 2023-05-06 13:35:44.291206+05 |         1
+        5 |       1 | 2023-05-06 13:37:11.981355+05 |         5
+        6 |       1 | 2023-05-06 13:39:27.578829+05 |         1
+        7 |       3 | 2023-05-06 13:39:27.578829+05 |         1
+        8 |       3 | 2023-05-06 13:39:27.578829+05 |         2
+(8 rows)
+
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.50
+ Молоко                   |        37.50
+(3 rows)
+
+postgres=# SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.50
+ Молоко                   |        37.50
+(3 rows)
+
+postgres=# DELETE FROM sales WHERE sales_id IN (6,7,9);
+DELETE 2
+postgres=# SELECT * FROM sales;
+ sales_id | good_id |          sales_time           | sales_qty
+----------+---------+-------------------------------+-----------
+        1 |       1 | 2023-05-06 13:35:44.291206+05 |        10
+        2 |       1 | 2023-05-06 13:35:44.291206+05 |         1
+        3 |       1 | 2023-05-06 13:35:44.291206+05 |       120
+        4 |       2 | 2023-05-06 13:35:44.291206+05 |         1
+        5 |       1 | 2023-05-06 13:37:11.981355+05 |         5
+        8 |       3 | 2023-05-06 13:39:27.578829+05 |         2
+(6 rows)
+
+postgres=# DELETE FROM sales WHERE sales_id IN (6,7,8);
+DELETE 1
+postgres=# SELECT * FROM sales;
+ sales_id | good_id |          sales_time           | sales_qty
+----------+---------+-------------------------------+-----------
+        1 |       1 | 2023-05-06 13:35:44.291206+05 |        10
+        2 |       1 | 2023-05-06 13:35:44.291206+05 |         1
+        3 |       1 | 2023-05-06 13:35:44.291206+05 |       120
+        4 |       2 | 2023-05-06 13:35:44.291206+05 |         1
+        5 |       1 | 2023-05-06 13:37:11.981355+05 |         5
+(5 rows)
+
+postgres=# SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.00
+(2 rows)
+
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.00
+ Молоко                   |         0.00
+(3 rows)
+
+postgres=# -- Триггерная функция для изменения продажи (добавление товара или частичный возврат).
+DROP FUNCTION IF EXISTS change_sale CASCADE;
+CREATE OR REPLACE FUNCTION change_sale()
+    RETURNS trigger
+AS
+$CH_SALE$
+BEGIN
+    IF (NEW.sales_qty > OLD.sales_qty)
+    THEN
+        UPDATE good_sum_mart GSM
+        SET sum_sale = sum_sale + (G.good_price * (NEW.sales_qty - OLD.sales_qty))
+        FROM sales S
+                 INNER JOIN goods G ON G.goods_id = OLD.good_id
+        WHERE GSM.good_name = G.good_name;
+    ELSE
+        UPDATE good_sum_mart GSM
+        SET sum_sale = sum_sale - (G.good_price * (OLD.sales_qty - NEW.sales_qty))
+        FROM sales S
+                 INNER JOIN goods G ON G.goods_id = OLD.good_id
+        WHERE GSM.good_name = G.good_name;
+    END IF;
+    RETURN NEW;
+END;
+$CH_SALE$
+    LANGUAGE plpgsql;
+
+-- Создать триггер для изменения продажи.
+DROP TRIGGER IF EXISTS change_sale ON sales;
+
+CREATE TRIGGER change_sale
+    AFTER UPDATE
+    ON sales
+    FOR EACH ROW
+EXECUTE PROCEDURE change_sale();
+NOTICE:  function change_sale() does not exist, skipping
+DROP FUNCTION
+CREATE FUNCTION
+NOTICE:  trigger "change_sale" for relation "sales" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.00
+ Молоко                   |         0.00
+(3 rows)
+
+postgres=#
+
+INSERT INTO sales (good_id, sales_qty)
+VALUES
+    (1, 1), (3, 1), (3, 2);
+INSERT 0 3
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.50
+ Молоко                   |        37.50
+(3 rows)
+
+postgres=# SELECT * FROM sales;
+ sales_id | good_id |          sales_time           | sales_qty
+----------+---------+-------------------------------+-----------
+        1 |       1 | 2023-05-06 13:35:44.291206+05 |        10
+        2 |       1 | 2023-05-06 13:35:44.291206+05 |         1
+        3 |       1 | 2023-05-06 13:35:44.291206+05 |       120
+        4 |       2 | 2023-05-06 13:35:44.291206+05 |         1
+        5 |       1 | 2023-05-06 13:37:11.981355+05 |         5
+        9 |       1 | 2023-05-06 13:56:46.538929+05 |         1
+       10 |       3 | 2023-05-06 13:56:46.538929+05 |         1
+       11 |       3 | 2023-05-06 13:56:46.538929+05 |         2
+(8 rows)
+
+postgres=# UPDATE sales
+SET sales_qty = 5
+WHERE sales_id = 11;
+UPDATE 1
+postgres=# SELECT * FROM sales;
+ sales_id | good_id |          sales_time           | sales_qty
+----------+---------+-------------------------------+-----------
+        1 |       1 | 2023-05-06 13:35:44.291206+05 |        10
+        2 |       1 | 2023-05-06 13:35:44.291206+05 |         1
+        3 |       1 | 2023-05-06 13:35:44.291206+05 |       120
+        4 |       2 | 2023-05-06 13:35:44.291206+05 |         1
+        5 |       1 | 2023-05-06 13:37:11.981355+05 |         5
+        9 |       1 | 2023-05-06 13:56:46.538929+05 |         1
+       10 |       3 | 2023-05-06 13:56:46.538929+05 |         1
+       11 |       3 | 2023-05-06 13:56:46.538929+05 |         5
+(8 rows)
+
+postgres=# SELECT * FROM sales;
+ sales_id | good_id |          sales_time           | sales_qty
+----------+---------+-------------------------------+-----------
+        1 |       1 | 2023-05-06 13:35:44.291206+05 |        10
+        2 |       1 | 2023-05-06 13:35:44.291206+05 |         1
+        3 |       1 | 2023-05-06 13:35:44.291206+05 |       120
+        4 |       2 | 2023-05-06 13:35:44.291206+05 |         1
+        5 |       1 | 2023-05-06 13:37:11.981355+05 |         5
+        9 |       1 | 2023-05-06 13:56:46.538929+05 |         1
+       10 |       3 | 2023-05-06 13:56:46.538929+05 |         1
+       11 |       3 | 2023-05-06 13:56:46.538929+05 |         5
+(8 rows)
+
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |        68.50
+ Молоко                   |        75.00
+(3 rows)
+
+postgres=# UPDATE sales
+SET sales_qty = 2
+WHERE sales_id = 5;
+UPDATE 1
+postgres=# SELECT * FROM sales;
+ sales_id | good_id |          sales_time           | sales_qty
+----------+---------+-------------------------------+-----------
+        1 |       1 | 2023-05-06 13:35:44.291206+05 |        10
+        2 |       1 | 2023-05-06 13:35:44.291206+05 |         1
+        3 |       1 | 2023-05-06 13:35:44.291206+05 |       120
+        4 |       2 | 2023-05-06 13:35:44.291206+05 |         1
+        9 |       1 | 2023-05-06 13:56:46.538929+05 |         1
+       10 |       3 | 2023-05-06 13:56:46.538929+05 |         1
+       11 |       3 | 2023-05-06 13:56:46.538929+05 |         5
+        5 |       1 | 2023-05-06 13:37:11.981355+05 |         2
+(8 rows)
+
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Молоко                   |        75.00
+ Спички хозайственные     |        67.00
+(3 rows)
+
+postgres=# SELECT * FROM goods;
+ goods_id |        good_name         |  good_price
+----------+--------------------------+--------------
+        1 | Спички хозайственные     |         0.50
+        2 | Автомобиль Ferrari FXX K | 185000000.01
+        3 | Молоко                   |        12.50
+(3 rows)
+
+0.5*7=3.5
+
+postgres=# UPDATE goods
+SET good_price = 3.5
+WHERE goods_id = 1;
+UPDATE 1
+postgres=# SELECT * FROM goods;
+ goods_id |        good_name         |  good_price
+----------+--------------------------+--------------
+        2 | Автомобиль Ferrari FXX K | 185000000.01
+        3 | Молоко                   |        12.50
+        1 | Спички хозайственные     |         3.50
+(3 rows)
+
+postgres=# SELECT G.good_name, sum(G.good_price * S.sales_qty)
+FROM goods G
+         INNER JOIN sales S ON S.good_id = G.goods_id
+GROUP BY G.good_name;
+        good_name         |     sum
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Спички хозайственные     |       469.00
+ Молоко                   |        75.00
+(3 rows)
+
+postgres=# SELECT * FROM good_sum_mart;
+        good_name         |   sum_sale
+--------------------------+--------------
+ Автомобиль Ferrari FXX K | 185000000.01
+ Молоко                   |        75.00
+ Спички хозайственные     |        67.00
+(3 rows)
+
+469.00 / 67.00 = 7
+
